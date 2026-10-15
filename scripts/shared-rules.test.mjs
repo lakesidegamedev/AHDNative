@@ -159,7 +159,7 @@ describe("shared-rules CLI", () => {
     assert.equal(readFileSync(join(pkg, "stats/statsConstants.ts"), "utf8"), CONSTANTS_SOURCE);
 
     const provenance = JSON.parse(readFileSync(join(pkg, "provenance.json"), "utf8"));
-    assert.equal(provenance.repo, "Egg3901/AHDGame");
+    assert.equal(provenance.repo, "lakesidegamedev/AHDGame");
     assert.equal(provenance.revision, source.sha);
     assert.equal(provenance.rootEntry, ROOT_ENTRY);
     assert.match(String(provenance.scope), /fundraiser/i);

@@ -27,7 +27,7 @@ jobs:
       - name: Read pinned authoritative rules
         uses: actions/checkout@v4
         with:
-          repository: Egg3901/AHDGame
+          repository: lakesidegamedev/AHDGame
           ref: ${{ steps.rules.outputs.revision }}
           path: .reference-game
           persist-credentials: false

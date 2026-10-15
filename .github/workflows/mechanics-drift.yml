@@ -25,7 +25,7 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          repository: Egg3901/AHDGame
+          repository: lakesidegamedev/AHDGame
           ref: ${{ inputs.target_ref }}
           path: .reference-game
           fetch-depth: 0

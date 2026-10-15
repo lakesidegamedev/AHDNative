@@ -80,7 +80,7 @@ function writeManifest(baselineRevision, slices) {
     `${JSON.stringify(
       {
         schemaVersion: 1,
-        repository: "Egg3901/AHDGame",
+        repository: "lakesidegamedev/AHDGame",
         baselineRevision,
         trackedRoots: ["src/lib", "src/simulation"],
         slices,

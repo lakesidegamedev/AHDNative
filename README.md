@@ -4,7 +4,7 @@
 
 A unified A House Divided app for singleplayer and multiplayer on mobile and desktop. Delivery starts with offline singleplayer on iOS.
 
-A native app port of the game at [Egg3901/AHDGame](https://github.com/Egg3901/AHDGame), which remains the authoritative multiplayer server and the mechanics reference. Licensed proprietary - see [LICENSE.md](./LICENSE.md).
+A native app port of the game at [lakesidegamedev/AHDGame](https://github.com/lakesidegamedev/AHDGame), which remains the authoritative multiplayer server and the mechanics reference. Licensed proprietary - see [LICENSE.md](./LICENSE.md).
 
 ## The app
 
@@ -18,7 +18,7 @@ Fundraise now consumes [Game-owned shared rules](docs/SHARED-RULES.md) through a
 
 ## Status
 
-Internal iOS development preview **0.1.10 build 1.23** is delivered privately through manual Codemagic to the existing Owner review group. Apple reports VALID, INTERNAL_ONLY and IN_BETA_TESTING. Reviewed source is `52f4860db4d8f500d20f6cbbb1b6c43bc30dff0c`, tagged `preview/0.1.10-2`; [PR #738](https://github.com/Egg3901/AHDNative/pull/738) merged as `15a6aa69` after its [complete source gate](https://github.com/Egg3901/AHDNative/actions/runs/37088728120) passed. The latest published GitHub source prerelease remains `preview/0.1.9-4`. Windows delivery is a private unsigned x64 owner-review build; Windows and Android retain their earlier packages. These are not public store releases or a 1.0.0 claim, and owner feedback and physical-device validation remain open in [issue #124](https://github.com/Egg3901/AHDNative/issues/124). What holds today:
+Internal iOS development preview **0.1.10 build 1.23** is delivered privately through manual Codemagic to the existing Owner review group. Apple reports VALID, INTERNAL_ONLY and IN_BETA_TESTING. Reviewed source is `52f4860db4d8f500d20f6cbbb1b6c43bc30dff0c`, tagged `preview/0.1.10-2`; [PR #738](https://github.com/lakesidegamedev/AHDNative/pull/738) merged as `15a6aa69` after its [complete source gate](https://github.com/lakesidegamedev/AHDNative/actions/runs/37088728120) passed. The latest published GitHub source prerelease remains `preview/0.1.9-4`. Windows delivery is a private unsigned x64 owner-review build; Windows and Android retain their earlier packages. These are not public store releases or a 1.0.0 claim, and owner feedback and physical-device validation remain open in [issue #124](https://github.com/lakesidegamedev/AHDNative/issues/124). What holds today:
 
 - Main runs a local singleplayer world through React game screens and a dedicated simulation worker. New game, actions, turns, save, app reload and resume have passed a real browser smoke test at phone screen size.
 - Bottom navigation and a side drawer reach politics, national economy/budget/policy, home region, nations, portfolio and banking. Turn, save and exit controls live in the drawer. The compact footer opens full resource details. Full feature parity is still in progress.
@@ -27,7 +27,7 @@ Internal iOS development preview **0.1.10 build 1.23** is delivered privately th
 - Native save storage has passing Rust tests.
 - The reusable TypeScript engine is pinned to a recorded AHDClient revision (354 non-test engine/content files scanned; baseline provenance in [engine-source-manifest.json](docs/engine-source-manifest.json), with [subsequent adaptations](docs/ENGINE-ADAPTATIONS.md)).
 
-The imported engine is incomplete. Working turns, save round-trips and deterministic replays do not establish AHDGame parity. Whole-game findings are tracked in [issue #28](https://github.com/Egg3901/AHDNative/issues/28).
+The imported engine is incomplete. Working turns, save round-trips and deterministic replays do not establish AHDGame parity. Whole-game findings are tracked in [issue #28](https://github.com/lakesidegamedev/AHDNative/issues/28).
 
 Known acceptance gates before any release claim: differences from current AHDGame ([mechanics audit](docs/MECHANICS-PARITY.md) and [helper wiring inventory](docs/HELPER-WIRING-INVENTORY.md)), v42/v44 save compatibility ([save compatibility](docs/SAVE-COMPATIBILITY.md)), native lifecycle and physical-device performance. A Rust engine rewrite stays profile gated: it ships only if device measurements justify it. Not every era, country, or mechanic is available yet; supported content is whatever the docs above and the [roadmap](docs/ROADMAP.md) show as validated.
 
@@ -51,7 +51,7 @@ MP uses the authoritative AHDGame server API through its existing native session
 Requires Node 22.12+ and the pinned Rust toolchain in `rust-toolchain.toml`.
 
 ```bash
-git clone https://github.com/Egg3901/AHDNative.git
+git clone https://github.com/lakesidegamedev/AHDNative.git
 cd AHDNative
 npm ci
 npm run dev              # http://127.0.0.1:1420
@@ -109,7 +109,7 @@ Standing implementation rules live in [AGENTS.md](./AGENTS.md); read them before
 
 ## Contributing
 
-Bug reports, UI feedback and documentation corrections are welcome through the issue templates. Source modifications require written permission under the proprietary license. Authorized mechanics work needs parity evidence against the reference engine before it merges; formulas are ported, never rebalanced. Save-schema support must be verified explicitly before it is promised. Report exploits through [private vulnerability reporting](https://github.com/Egg3901/AHDNative/security/advisories/new), never public issues.
+Bug reports, UI feedback and documentation corrections are welcome through the issue templates. Source modifications require written permission under the proprietary license. Authorized mechanics work needs parity evidence against the reference engine before it merges; formulas are ported, never rebalanced. Save-schema support must be verified explicitly before it is promised. Report exploits through [private vulnerability reporting](https://github.com/lakesidegamedev/AHDNative/security/advisories/new), never public issues.
 
 ## License
 
