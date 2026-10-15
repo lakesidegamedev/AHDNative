@@ -32,7 +32,7 @@ import posix from "node:path/posix";
 const here = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(here, "..");
 const DEFAULT_PACKAGE = join(REPO_ROOT, "packages", "game-rules");
-const SOURCE_REPO = "Egg3901/AHDGame";
+const SOURCE_REPO = "lakesidegamedev/AHDGame";
 const ROOT_ENTRY = "src/lib/actions/rules.ts";
 const SOURCE_PREFIX = "src/lib/";
 const LICENSE_PATH = "LICENSE.md";
@@ -318,7 +318,7 @@ Consumable as \`${PACKAGE_NAME}\`:
 import { FUNDRAISE_ACTION_COST } from "@ahd/game-rules/actions";
 \`\`\`
 
-This is the fundraiser slice only. It is generated from Egg3901/AHDGame at the
+This is the fundraiser slice only. It is generated from lakesidegamedev/AHDGame at the
 exact revision recorded in \`provenance.json\`. Do not edit these files by hand
 and do not treat this package as a complete mechanics export.
 

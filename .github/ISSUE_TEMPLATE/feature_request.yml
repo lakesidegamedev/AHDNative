@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Mechanics proposals need parity evidence before code - see the [mechanics audit](https://github.com/Egg3901/AHDNative/blob/main/docs/MECHANICS-PARITY.md) and [roadmap](https://github.com/Egg3901/AHDNative/blob/main/docs/ROADMAP.md). Mechanics are ported from AHDGame, never rebalanced.
+        Mechanics proposals need parity evidence before code - see the [mechanics audit](https://github.com/lakesidegamedev/AHDNative/blob/main/docs/MECHANICS-PARITY.md) and [roadmap](https://github.com/lakesidegamedev/AHDNative/blob/main/docs/ROADMAP.md). Mechanics are ported from AHDGame, never rebalanced.
   - type: textarea
     id: proposal
     attributes:

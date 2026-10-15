@@ -1,5 +1,5 @@
 {
-  "repo": "Egg3901/AHDGame",
+  "repo": "lakesidegamedev/AHDGame",
   "revision": "d4baf899fd8bd529099f03d7410807143604e2e5",
   "rootEntry": "src/lib/actions/rules.ts",
   "scope": "fundraiser action rules only",
