@@ -107,6 +107,18 @@ const MP_ACTION_CATEGORIES: Record<string, ActionsCategoryFilter> = {
 };
 
 /**
+ * Resource labels for the footer details popover, mirroring the reference
+ * status bar's resource names.
+ */
+const MP_RESOURCE_LABELS: Record<string, string> = {
+  ap: "Action points",
+  funds: "Campaign funds",
+  cash: "Cash",
+  influence: "Influence",
+  favorability: "Favorability",
+};
+
+/**
  * Party label for the multiplayer identity surfaces. The character record
  * carries the party key (a numeric id on the live server), so the resolved
  * name from client-nav is preferred; a legacy non-numeric key is still
@@ -206,6 +218,16 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
   const [nationsLoading, setNationsLoading] = useState(false);
   const [electionsLoading, setElectionsLoading] = useState(false);
   const [newsLoading, setNewsLoading] = useState(false);
+  /* Resource details (#510): the reference status bar opens a popover from
+   * each resource chip with that resource's figures and links into the
+   * matching destination. Native mirrors that shape with the figures the
+   * server actually reports. */
+  const [openResource, setOpenResource] = useState<string | null>(null);
+  /* Cash delta (#510): the reference chip shows the change since the last
+   * action. Native can honestly report the change since the last status
+   * read, which is the same server figure a moment later. */
+  const cashRef = useRef<number | null>(null);
+  const [cashDelta, setCashDelta] = useState<number | null>(null);
 
   useEffect(() => {
     const session = sessionRef.current!;
@@ -419,6 +441,17 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
     // relaxed (120s). Timers are cleared on every phase change, so this
     // cannot stack pollers.
   }, [snapshot.phase]);
+
+  /* Cash delta (#510): compare each authoritative status read with the
+   * previous one. The first read has no baseline, so no delta is claimed
+   * until the server reports a different figure. */
+  useEffect(() => {
+    const cash = snapshot.status?.cashOnHand ?? null;
+    if (cash === null) return;
+    const previous = cashRef.current;
+    cashRef.current = cash;
+    if (previous !== null && previous !== cash) setCashDelta(cash - previous);
+  }, [snapshot.status?.cashOnHand]);
 
   /* World news (#510 world destinations). The feed is public and paged; it
    * loads when the destination opens and never blocks the session. A failed
@@ -1962,19 +1995,19 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
             {snapshot.presence && <span className="ahd-muted">{snapshot.presence.online} online</span>}
           </div>}
           {snapshot.character && <div className="ahd-status-resources ahd-mp-resources" role="group" aria-label="Resources">
-            {statusActions !== null && <button type="button" className="ahd-status-btn" aria-label={`Action points: ${statusActions}`} title={snapshot.status?.actionCap !== null && snapshot.status?.actionCap !== undefined ? `Action cap: ${snapshot.status.actionCap}` : undefined} onClick={() => jumpTo("mp-actions")}>
+            {statusActions !== null && <button type="button" className="ahd-status-btn" aria-label={`Action points: ${statusActions}`} aria-expanded={openResource === "ap"} aria-controls={openResource === "ap" ? "ahd-mp-resource-ap" : undefined} title={snapshot.status?.actionCap !== null && snapshot.status?.actionCap !== undefined ? `Action cap: ${snapshot.status.actionCap}` : undefined} onClick={() => setOpenResource(openResource === "ap" ? null : "ap")}>
               <span className="ahd-status-btn-label">AP</span><span className="ahd-mono ahd-status-btn-value">{statusActions}</span>
             </button>}
-            {statusFunds !== null && <button type="button" className="ahd-status-btn" aria-label={`Campaign funds: ${moneyLabel(statusFunds)}`} onClick={() => jumpTo("mp-wallet")}>
+            {statusFunds !== null && <button type="button" className="ahd-status-btn" aria-label={`Campaign funds: ${moneyLabel(statusFunds)}`} aria-expanded={openResource === "funds"} aria-controls={openResource === "funds" ? "ahd-mp-resource-funds" : undefined} onClick={() => setOpenResource(openResource === "funds" ? null : "funds")}>
               <span className="ahd-status-btn-label">Funds</span><span className="ahd-mono ahd-status-btn-value">{statusFunds.toLocaleString("en-US", { notation: "compact" })}</span>
             </button>}
-            {statusCash !== null && <button type="button" className="ahd-status-btn" aria-label={`Cash on hand: ${moneyLabel(statusCash)}`} onClick={() => jumpTo("mp-wallet")}>
+            {statusCash !== null && <button type="button" className="ahd-status-btn" aria-label={`Cash on hand: ${moneyLabel(statusCash)}`} aria-expanded={openResource === "cash"} aria-controls={openResource === "cash" ? "ahd-mp-resource-cash" : undefined} onClick={() => setOpenResource(openResource === "cash" ? null : "cash")}>
               <span className="ahd-status-btn-label">Cash</span><span className="ahd-mono ahd-status-btn-value">{statusCash.toLocaleString("en-US", { notation: "compact" })}</span>
             </button>}
-            {statusInfluence !== null && <button type="button" className="ahd-status-btn" aria-label={`Influence: ${statusInfluence}`} onClick={() => jumpTo("mp-profile")}>
+            {statusInfluence !== null && <button type="button" className="ahd-status-btn" aria-label={`Influence: ${statusInfluence}`} aria-expanded={openResource === "influence"} aria-controls={openResource === "influence" ? "ahd-mp-resource-influence" : undefined} onClick={() => setOpenResource(openResource === "influence" ? null : "influence")}>
               <span className="ahd-status-btn-label">INF</span><span className="ahd-mono ahd-status-btn-value">{statusInfluence}</span>
             </button>}
-            {statusFavorability !== null && <button type="button" className="ahd-status-btn" aria-label={`Favorability: ${statusFavorability}`} onClick={() => jumpTo("mp-profile")}>
+            {statusFavorability !== null && <button type="button" className="ahd-status-btn" aria-label={`Favorability: ${statusFavorability}`} aria-expanded={openResource === "favorability"} aria-controls={openResource === "favorability" ? "ahd-mp-resource-favorability" : undefined} onClick={() => setOpenResource(openResource === "favorability" ? null : "favorability")}>
               <span className="ahd-status-btn-label">FAV</span><span className="ahd-mono ahd-status-btn-value">{statusFavorability}</span>
             </button>}
             {snapshot.inbox && <button type="button" className="ahd-status-btn" aria-label={`Notifications: ${snapshot.inbox.unreadCount} unread`} onClick={() => jumpTo("mp-inbox")}>
@@ -1985,8 +2018,84 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
             menuOpen={menuOpen} menuButtonRef={menuButtonRef}
             disabledTabs={onAsk || askContent ? [] : ["ask"]}
             onNavigate={(next) => next === "ask" && !askContent ? onAsk?.() : jumpTo(`mp-${next}`)}
-            onOpenMenu={() => setMenuOpen(true)} />
+            onOpenMenu={() => { setOpenResource(null); setMenuOpen(true); }} />
         </div>
+        {/* Resource details (#510): the reference status bar opens a popover
+          * from each resource chip with that resource's figures and links
+          * into the matching destination. Native shows only the figures the
+          * server reported, and a link to the destination that owns them. */}
+        {openResource ? (
+          <div
+            role="dialog"
+            aria-modal="false"
+            aria-label={`${MP_RESOURCE_LABELS[openResource] ?? "Resource"} details`}
+            id={`ahd-mp-resource-${openResource}`}
+            tabIndex={-1}
+            className="ahd-container ahd-resource-popover"
+            onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setOpenResource(null); } }}
+            style={{ outline: "none" }}
+          >
+            <div className="ahd-resource-details">
+              <div className="ahd-resource-facts">
+                {openResource === "ap" ? (
+                  <span>
+                    Action points: {statusActions}.
+                    {snapshot.status?.actionCap !== null && snapshot.status?.actionCap !== undefined
+                      ? " Per-turn cap: " + snapshot.status.actionCap + "."
+                      : ""}
+                    {snapshot.status?.hoardThreshold !== null && snapshot.status?.hoardThreshold !== undefined
+                      ? " Hoarding threshold: " + snapshot.status.hoardThreshold + "."
+                      : ""}
+                  </span>
+                ) : null}
+                {openResource === "funds" ? (
+                  <span>
+                    Campaign funds: {statusFunds === null ? "not reported" : moneyLabel(statusFunds)}.
+                    {snapshot.status?.campaignFundsStored !== null && snapshot.status?.campaignFundsStored !== undefined
+                      ? " Stored balance: " + moneyLabel(snapshot.status.campaignFundsStored) + "."
+                      : ""}
+                  </span>
+                ) : null}
+                {openResource === "cash" ? (
+                  <span>
+                    Cash on hand: {statusCash === null ? "not reported" : moneyLabel(statusCash)}.
+                    {snapshot.status?.personalHomeLiquid !== null && snapshot.status?.personalHomeLiquid !== undefined
+                      ? " Liquid home cash: " + moneyLabel(snapshot.status.personalHomeLiquid) + "."
+                      : ""}
+                    {cashDelta !== null && cashDelta !== 0
+                      ? " Since the last read: " + (cashDelta > 0 ? "+" : "\u2212") + Math.abs(cashDelta).toLocaleString("en-US") + "."
+                      : ""}
+                  </span>
+                ) : null}
+                {openResource === "influence" ? (
+                  <span>
+                    Influence: {statusInfluence === null ? "not reported" : statusInfluence}.
+                    {snapshot.status?.donorBaseLevel !== null && snapshot.status?.donorBaseLevel !== undefined
+                      ? " Donor base: " + snapshot.status.donorBaseLevel + "."
+                      : ""}
+                  </span>
+                ) : null}
+                {openResource === "favorability" ? (
+                  <span>Favorability: {statusFavorability === null ? "not reported" : statusFavorability}.</span>
+                ) : null}
+              </div>
+              <div className="ahd-resource-links">
+                <button type="button" className="ahd-btn ahd-btn-sm" onClick={() => { setOpenResource(null); jumpTo("mp-actions"); }}>
+                  Go to Actions
+                </button>
+                <button type="button" className="ahd-btn ahd-btn-sm" onClick={() => { setOpenResource(null); jumpTo("mp-wallet"); }}>
+                  Go to Wallet
+                </button>
+                <button type="button" className="ahd-btn ahd-btn-sm" onClick={() => { setOpenResource(null); jumpTo("mp-profile"); }}>
+                  Go to Profile
+                </button>
+                <button type="button" className="ahd-btn ahd-btn-sm ahd-btn-ghost" onClick={() => setOpenResource(null)} aria-label="Close details">
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </footer>
     </main>
   );

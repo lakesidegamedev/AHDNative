@@ -892,3 +892,31 @@ listing and the honest empty state), `src/mp/nations.test.ts` (the feed
 projection and the last-good-feed posture) and the Rust path/allowlist
 assertions in `mp_session::tests::world_reads_resolve_to_pinned_paths`. No
 physical-iPhone evidence is claimed; #363/#436 remain open.
+
+## 26. MP resource details (#510)
+
+The reference status bar opens a popover from each resource chip: the
+resource's own figures plus links into the destinations that own them.
+Multiplayer only navigated, so a player could not see the action cap, the
+hoarding threshold, the stored campaign balance, the liquid home cash or
+the change in cash since the last read.
+
+Delivered:
+
+- Each footer chip now opens that resource's details popover (the shared
+  `ahd-resource-popover` surface, with the same dialog role and label
+  shape singleplayer uses) and links into Actions, Wallet and Profile.
+- The popover shows only what the server reported: the action count with
+  its per-turn cap and hoarding threshold, the campaign funds with the
+  stored balance, the cash on hand with the liquid home cash, and the
+  influence with the donor base.
+- The cash figure also reports the change since the last status read, the
+  honest multiplayer equivalent of the reference's "since last action"
+  row. The first read has no baseline, so no change is claimed until the
+  server reports a different figure.
+
+Focused evidence: `src/ui/MpResourceDetails510.test.tsx` (2 rendered tests:
+the reported figures and the destination link, the cash change since the
+last read) and `src/ui/MpModeScreenNav.test.tsx` (the chip now opens the
+details and the details link reaches the destination). No physical-iPhone
+evidence is claimed; #363/#436 remain open.

@@ -40,9 +40,9 @@ presentation change does not expand the server action allowlist.
 MP's compact footer exposes the same leading identity as SP (name opens
 Profile, followed by party · country), the reported turn on the shared LARP
 calendar with the Founding freeze, schedule/status, presence, AP, campaign
-funds, cash, influence, favorability and unread notifications. AP opens
-Actions, funds/cash open Wallet, influence/favorability open Profile and the
-inbox count opens Notifications. The resource figures come from the
+funds, cash, influence, favorability and unread notifications. Each resource
+chip opens that resource's details popover, as in SP, and the popover links
+into Actions, Wallet and Profile; the inbox count opens Notifications. The resource figures come from the
 authoritative status read and refresh on the reference cadence; missing
 values remain absent. No currency or income breakdown is inferred from an
 unqualified cash number.
