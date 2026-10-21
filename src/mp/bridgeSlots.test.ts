@@ -33,6 +33,7 @@ const SLOTS = [
   "governorStateId",
   "countryCode",
   "searchQuery",
+  "politicianId",
 ] as const;
 
 function recordingHost(bodies: Record<string, string>) {
@@ -116,6 +117,23 @@ describe("MP bridge argument positions", () => {
     expect(slotOf(call!, "searchQuery")).toBe("Bo");
     for (const slot of SLOTS.slice(1)) {
       if (slot === "searchQuery") continue;
+      expect(slotOf(call!, slot)).toBeUndefined();
+    }
+  });
+
+  it("puts the politician id in the politician slot", async () => {
+    const { host, calls } = recordingHost({
+      "politician-detail": JSON.stringify({ id: "68a000000000000000000001", name: "Bo" }),
+    });
+    const session = new MpModeSession(host);
+    await session.enter();
+    await session.loadPoliticianDetail("68a000000000000000000001");
+
+    const call = calls.find((entry) => entry.op === "politician-detail");
+    expect(call).toBeDefined();
+    expect(slotOf(call!, "politicianId")).toBe("68a000000000000000000001");
+    for (const slot of SLOTS.slice(1)) {
+      if (slot === "politicianId") continue;
       expect(slotOf(call!, slot)).toBeUndefined();
     }
   });

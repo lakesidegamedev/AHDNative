@@ -910,6 +910,61 @@ export function parseCharacterSearch(bodyText: string): MpCharacterSearchResult[
 }
 
 /**
+ * A politician's public profile, from GET /api/politician/{id}.
+ */
+export interface MpPoliticianView {
+  /** 24-hex character or NPP id. */
+  id: string;
+  /** "character" for a player, "npp" for a non-player politician. */
+  type: string | null;
+  name: string;
+  party: string | null;
+  partyName: string | null;
+  homeState: string | null;
+  homeStateName: string | null;
+  currentOffice: string | null;
+  politicalInfluence: number | null;
+  nationalInfluence: number | null;
+  favorability: number | null;
+  infamy: number | null;
+  economicPolicy: number | null;
+  socialPolicy: number | null;
+  bio: string | null;
+  isNpp: boolean | null;
+}
+
+/**
+ * politician-detail: the public profile. A mistyped field degrades to null
+ * rather than inventing a figure; a body without a name fails closed.
+ */
+export function parsePoliticianDetail(bodyText: string): MpPoliticianView | null {
+  const record = asRecord(parseJsonBody(bodyText));
+  if (!record) return null;
+  const id = asTrimmedString(record.id);
+  const name = asTrimmedString(record.name);
+  if (!id || !name || !HEX_OBJECT_ID.test(id)) return null;
+  const policies = asRecord(record.policies);
+  return {
+    id,
+    type: asTrimmedString(record.type ?? null),
+    name,
+    party: asTrimmedString(record.party ?? null),
+    partyName: asTrimmedString(record.partyName ?? null),
+    homeState: asTrimmedString(record.homeState ?? null),
+    homeStateName: asTrimmedString(record.homeStateName ?? null),
+    currentOffice: asTrimmedString(record.currentOffice ?? null),
+    politicalInfluence: asNumber(record.politicalInfluence),
+    nationalInfluence: asNumber(record.nationalInfluence),
+    favorability: asNumber(record.favorability),
+    infamy: asNumber(record.infamy),
+    economicPolicy: policies ? asNumber(policies.economic) : null,
+    socialPolicy: policies ? asNumber(policies.social) : null,
+    bio: asTrimmedString(record.bio ?? null),
+    isNpp: asBoolean(record.isNPP),
+  };
+}
+
+/**
  * One post of the world news feed, from GET /api/news.
  */
 export interface MpNewsPostView {

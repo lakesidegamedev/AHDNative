@@ -109,6 +109,13 @@
  *   leadership (AHDGame src/app/api/country/[code]/legislature/leaders/
  *   route.ts): 200 {primeMinister:{characterId,characterName,party,since,
  *   avatarUrl}|null, oppositionLeader:{...}|null, speaker:null}.
+ * - politician-detail  GET /api/politician/{id}
+ *   public, no auth; 400 on an invalid id, 404 when the politician is gone.
+ *   A politician's public profile (AHDGame
+ *   src/app/api/politician/[id]/route.ts): 200 {type:"character"|"npp",id,
+ *   name,avatarUrl,party,partyName,homeState,homeStateName,currentOffice,
+ *   politicalInfluence,nationalInfluence,favorability,infamy,policies:{economic,
+ *   social},bio,isNPP}. The id is a 24-hex character or NPP id.
  * - turn-status       /api/game/turn/status    public; 404 uninitialized
  *   {singleplayer,currentTurn,currentYear,startingYear,preset,
  *   preIterationTurns,preIterationActive,isActive,isProcessing,
@@ -404,7 +411,8 @@ export type MpFetchOpId =
   | "country-leaders"
   | "election-list"
   | "news-feed"
-  | "character-search";
+  | "character-search"
+  | "politician-detail";
 
 export type MpMutateOpId =
   | "execute-action"

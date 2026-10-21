@@ -14,6 +14,7 @@ import {
   parseClientStatus,
   parseCountries,
   parseCountryLeaders,
+  parsePoliticianDetail,
   parseCountryOverview,
   parseCountryParties,
   parseCountryPoliticians,
@@ -513,6 +514,50 @@ describe("parseCountryStates", () => {
     expect(parseCountryStates(JSON.stringify({ states: [{ id: "CA" }] }))).toBeNull();
     expect(parseCountryStates(JSON.stringify({ states: {} }))).toBeNull();
     expect(parseCountryStates("not json")).toBeNull();
+  });
+});
+
+describe("parsePoliticianDetail", () => {
+  it("projects the public politician profile", () => {
+    expect(
+      parsePoliticianDetail(
+        JSON.stringify({
+          type: "character",
+          id: "68a000000000000000000001",
+          name: "Bo",
+          party: "12",
+          partyName: "Labour Party",
+          homeState: "CA",
+          homeStateName: "California",
+          currentOffice: "Senator",
+          politicalInfluence: 61,
+          nationalInfluence: 40,
+          favorability: 55,
+          infamy: 2,
+          policies: { economic: 40, social: 60 },
+          bio: "A senator.",
+          isNPP: false,
+        }),
+      ),
+    ).toMatchObject({
+      id: "68a000000000000000000001",
+      type: "character",
+      name: "Bo",
+      partyName: "Labour Party",
+      homeStateName: "California",
+      currentOffice: "Senator",
+      politicalInfluence: 61,
+      favorability: 55,
+      economicPolicy: 40,
+      socialPolicy: 60,
+      isNpp: false,
+    });
+  });
+
+  it("fails closed on a malformed profile", () => {
+    expect(parsePoliticianDetail(JSON.stringify({ id: "not-hex", name: "Bo" }))).toBeNull();
+    expect(parsePoliticianDetail(JSON.stringify({ id: "68a000000000000000000001" }))).toBeNull();
+    expect(parsePoliticianDetail("not json")).toBeNull();
   });
 });
 

@@ -7,6 +7,7 @@ import {
   parseClientStatus,
   parseCountries,
   parseCountryLeaders,
+  parsePoliticianDetail,
   parseCountryOverview,
   parseCountryParties,
   parseCountryPoliticians,
@@ -56,6 +57,7 @@ import {
   type MpNationPartyView,
   type MpNationPoliticianView,
   type MpNationLeadersView,
+  type MpPoliticianView,
   type MpNewsPostView,
   type MpCharacterSearchResult,
   type MpUnionDetailView,
@@ -152,6 +154,11 @@ export interface MpSnapshot {
    */
   nationLeaders: MpNationLeadersView | null;
   /**
+   * A politician's public profile, from /api/politician/{id}. Loaded on
+   * demand from the nation drill-in.
+   */
+  politician: MpPoliticianView | null;
+  /**
    * A nation's election list, from
    * /api/elections?country={code}&view=summary. Loaded on demand.
    */
@@ -199,6 +206,7 @@ const INITIAL_SNAPSHOT: MpSnapshot = {
   nationParties: null,
   nationPoliticians: null,
   nationLeaders: null,
+  politician: null,
   electionList: null,
   newsFeed: null,
   characterSearch: null,
@@ -221,9 +229,9 @@ export const MP_MAIL_LIMIT = 50;
 
 function emptyAuthed(): Pick<
   MpSnapshot,
-  "character" | "savings" | "turn" | "capabilities" | "electionDetail" | "corporationDetail" | "unionDetail" | "cabinetDetail" | "governorDetail" | "inbox" | "mailInbox" | "mailSent" | "presence" | "status" | "nations" | "nationOverview" | "nationRegions" | "nationParties" | "nationPoliticians" | "nationLeaders" | "electionList" | "newsFeed" | "characterSearch"
+  "character" | "savings" | "turn" | "capabilities" | "electionDetail" | "corporationDetail" | "unionDetail" | "cabinetDetail" | "governorDetail" | "inbox" | "mailInbox" | "mailSent" | "presence" | "status" | "nations" | "nationOverview" | "nationRegions" | "nationParties" | "nationPoliticians" | "nationLeaders" | "politician" | "electionList" | "newsFeed" | "characterSearch"
 > {
-  return { character: null, savings: null, turn: null, capabilities: null, electionDetail: null, corporationDetail: null, unionDetail: null, cabinetDetail: null, governorDetail: null, inbox: null, mailInbox: null, mailSent: null, presence: null, status: null, nations: null, nationOverview: null, nationRegions: null, nationParties: null, nationPoliticians: null, nationLeaders: null, electionList: null, newsFeed: null, characterSearch: null };
+  return { character: null, savings: null, turn: null, capabilities: null, electionDetail: null, corporationDetail: null, unionDetail: null, cabinetDetail: null, governorDetail: null, inbox: null, mailInbox: null, mailSent: null, presence: null, status: null, nations: null, nationOverview: null, nationRegions: null, nationParties: null, nationPoliticians: null, nationLeaders: null, politician: null, electionList: null, newsFeed: null, characterSearch: null };
 }
 
 export class MpModeSession {
@@ -653,6 +661,40 @@ export class MpModeSession {
       const nationRegions = parseCountryStates(result.bodyText);
       if (!nationRegions) return this.get();
       return this.set({ nationRegions });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
+   * Read a politician's public profile (#510). GET /api/politician/{id} is
+   * public; the id is checked here and again by the Rust bridge. A failed
+   * read keeps the previous profile and never fails the session. Never
+   * throws.
+   */
+  async loadPoliticianDetail(id: unknown): Promise<MpSnapshot> {
+    if (typeof id !== "string" || !/^[0-9a-f]{24}$/i.test(id)) return this.get();
+    try {
+      const result = await mpFetch(
+        this.host,
+        "politician-detail",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        id,
+      );
+      if (result.kind !== "ok") return this.get();
+      const politician = parsePoliticianDetail(result.bodyText);
+      if (!politician) return this.get();
+      return this.set({ politician });
     } catch {
       return this.get();
     }
