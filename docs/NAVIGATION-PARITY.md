@@ -1032,6 +1032,8 @@ nation directory filters by name). No physical-iPhone evidence is claimed;
 
 ## 33. MP politician profile (#510)
 
+(Opened from the nation drill-in; see the section body below.)
+
 The reference has a politician page; the multiplayer nation drill-in listed
 politicians without letting a player open one.
 
