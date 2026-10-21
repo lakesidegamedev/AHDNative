@@ -2256,7 +2256,6 @@ pub async fn mp_session_fetch(
                 || detail.governor_country_code.is_some()
                 || detail.governor_state_id.is_some()
                 || detail.country_code.is_some()
-                || detail.search_query.is_some()
             {
                 return Err(error::UNSUPPORTED_OP.to_string());
             }
@@ -2440,14 +2439,14 @@ mod tests {
     fn command_arm(source: &str, op: &str) -> String {
         // The command's own match, not the path builders: both mention the
         // same variants.
-        let command = source
+        let command_start = source
             .find("pub async fn mp_session_fetch")
             .expect("the fetch command must exist");
         let marker = format!("MpFetchOp::{op} => {{");
-        let start = source[command..]
+        let start = source[command_start..]
             .find(&marker)
             .unwrap_or_else(|| panic!("arm for {op} must exist"))
-            + command;
+            + command_start;
         let rest = &source[start + marker.len()..];
         // The arm ends at the next arm, at the default arm, or at the end of
         // the match, whichever comes first.
@@ -2463,36 +2462,22 @@ mod tests {
         rest[..end].chars().filter(|c| !c.is_whitespace()).collect()
     }
 
-    #[test]
-    fn country_scoped_reads_accept_the_country_code_they_read() {
-        // A country-scoped read takes the country code as its detail slot.
-        // If the same arm also rejected that slot, the read could never run:
-        // the guard would refuse the argument the arm requires. The command
-        // arms are not unit-testable without a Tauri app handle, so the
-        // invariant is checked against the source.
-        let source = include_str!("mp_session.rs");
-        for op in [
-            "CountryOverview",
-            "CountryStates",
-            "CountryParties",
-            "CountryPoliticians",
-            "CountryLeaders",
-            "ElectionList",
-        ] {
-            let arm = command_arm(source, op);
-            assert!(
-                arm.contains("detail.country_code.as_deref()"),
-                "{op} must read the country code"
-            );
-            assert!(
-                !arm.contains("detail.country_code.is_some()"),
-                "{op} must not reject the country code it reads"
-            );
-        }
-    }
+    /// The detail slots the bridge accepts. Each slot belongs to exactly one
+    /// read, so an arm must either read its slot or refuse it, never both.
+    const DETAIL_SLOTS: [&str; 5] = [
+        "election_id",
+        "corporation_id",
+        "union_id",
+        "country_code",
+        "search_query",
+    ];
 
     #[test]
-    fn reads_without_a_country_code_reject_a_stray_one() {
+    fn every_command_arm_uses_or_refuses_each_detail_slot_exactly_once() {
+        // The command arms need a Tauri app handle to run, so the invariant
+        // is checked against the source: an arm that both reads a detail
+        // slot and refuses it could never run, and an arm that ignores a
+        // slot must refuse it so no stray argument travels with a read.
         let source = include_str!("mp_session.rs");
         for op in [
             "ElectionDetail",
@@ -2500,37 +2485,45 @@ mod tests {
             "UnionDetail",
             "CabinetDetail",
             "GovernorDetail",
-            "NewsFeed",
+            "Countries",
+            "CountryOverview",
+            "CountryStates",
+            "CountryParties",
+            "CountryPoliticians",
+            "CountryLeaders",
+            "ElectionList",
+            "ClientStatusFull",
             "CharacterSearch",
+            "NewsFeed",
         ] {
             let arm = command_arm(source, op);
-            assert!(
-                arm.contains("detail.country_code.is_some()"),
-                "{op} must reject a country code it does not read"
-            );
+            for slot in DETAIL_SLOTS {
+                let reads = arm.contains(&format!("detail.{slot}.as_deref()"));
+                let refuses = arm.contains(&format!("detail.{slot}.is_some()"));
+                assert!(
+                    !(reads && refuses),
+                    "{op} must not both read and refuse the {slot} slot"
+                );
+            }
         }
-        // The wide status read has its own arm; the minimal one falls
-        // through to the default arm, which rejects every detail slot.
-        let status_arm = command_arm(source, "ClientStatusFull");
-        assert!(
-            status_arm.contains("detail.country_code.is_some()"),
-            "the wide status read must reject a country code it does not read"
-        );
-        let command = source
-            .split("pub async fn mp_session_fetch")
-            .nth(1)
+        // The default arm carries the minimal status read, so it must refuse
+        // every slot it does not read.
+        let command_start = source
+            .find("pub async fn mp_session_fetch")
             .expect("the fetch command must exist");
-        let default_arm = command
+        let default_arm = source[command_start..]
             .split("        _ => {")
             .nth(1)
             .expect("the default arm must exist")
             .split("        };")
             .next()
             .expect("the default arm must end");
-        assert!(
-            default_arm.contains("detail.country_code.is_some()"),
-            "the default arm must reject a country code"
-        );
+        for slot in DETAIL_SLOTS {
+            assert!(
+                default_arm.contains(&format!("detail.{slot}.is_some()")),
+                "the default arm must refuse the {slot} slot"
+            );
+        }
     }
 
     #[test]

@@ -1041,10 +1041,13 @@ Delivered:
 
 - The country-scoped arms read the country code they need, and every other
   op rejects a country or search slot it does not read.
-- Two Rust tests now pin the invariant against the source, because the
+- A Rust test now pins the whole invariant against the source, because the
   command arms need a Tauri app handle to run:
-  `country_scoped_reads_accept_the_country_code_they_read` and
-  `reads_without_a_country_code_reject_a_stray_one`.
+  `every_command_arm_uses_or_refuses_each_detail_slot_exactly_once` walks
+  every command arm and fails when an arm both reads a detail slot and
+  refuses it, and when the default arm stops refusing a slot. The same
+  review found the same defect in the mail recipient search arm, which would
+  have made that read fail on a device.
 
 Focused evidence: `cargo test --manifest-path src-tauri/Cargo.toml --lib`
 (93 tests) with `cargo fmt --check` and
