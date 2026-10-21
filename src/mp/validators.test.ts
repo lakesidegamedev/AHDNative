@@ -13,6 +13,7 @@ import {
   parseClientNav,
   parseClientStatus,
   parseCountries,
+  parseCountryLeaders,
   parseCountryOverview,
   parseCountryParties,
   parseCountryPoliticians,
@@ -512,6 +513,41 @@ describe("parseCountryStates", () => {
     expect(parseCountryStates(JSON.stringify({ states: [{ id: "CA" }] }))).toBeNull();
     expect(parseCountryStates(JSON.stringify({ states: {} }))).toBeNull();
     expect(parseCountryStates("not json")).toBeNull();
+  });
+});
+
+describe("parseCountryLeaders", () => {
+  it("projects the nation's legislature leadership", () => {
+    expect(
+      parseCountryLeaders(
+        JSON.stringify({
+          primeMinister: {
+            characterId: "507f1f77bcf86cd799439012",
+            sequentialId: 4,
+            characterName: "Bo",
+            party: "Labour Party",
+            since: "2026-01-01T00:00:00.000Z",
+            avatarUrl: null,
+          },
+          oppositionLeader: null,
+          speaker: null,
+        }),
+      ),
+    ).toEqual({
+      primeMinister: {
+        characterId: "507f1f77bcf86cd799439012",
+        name: "Bo",
+        party: "Labour Party",
+        since: "2026-01-01T00:00:00.000Z",
+      },
+      oppositionLeader: null,
+      speaker: null,
+    });
+  });
+
+  it("fails closed on an error envelope", () => {
+    expect(parseCountryLeaders(JSON.stringify({ error: "Invalid country code" }))).toBeNull();
+    expect(parseCountryLeaders("not json")).toBeNull();
   });
 });
 

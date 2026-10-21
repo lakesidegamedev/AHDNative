@@ -189,6 +189,10 @@ pub enum MpFetchOp {
     /// The nation's politicians; GET /api/country/[code]/politicians
     /// (public, no auth, 400 on an invalid country).
     CountryPoliticians,
+    /// The nation's legislature leadership; GET
+    /// /api/country/[code]/legislature/leaders (public, no auth, 404 on
+    /// an invalid country).
+    CountryLeaders,
     /// A nation's election list; GET /api/elections?country={code}&view=
     /// summary (public with optional auth, 400 on an invalid country).
     /// The country code is a two-letter COUNTRY_CONFIGS key; see
@@ -229,6 +233,7 @@ impl MpFetchOp {
             "country-states" => Some(Self::CountryStates),
             "country-parties" => Some(Self::CountryParties),
             "country-politicians" => Some(Self::CountryPoliticians),
+            "country-leaders" => Some(Self::CountryLeaders),
             "election-list" => Some(Self::ElectionList),
             "news-feed" => Some(Self::NewsFeed),
             "character-search" => Some(Self::CharacterSearch),
@@ -261,6 +266,7 @@ impl MpFetchOp {
             Self::CountryStates => "/api/country",
             Self::CountryParties => "/api/country",
             Self::CountryPoliticians => "/api/country",
+            Self::CountryLeaders => "/api/country",
             Self::ElectionList => "/api/elections",
             Self::NewsFeed => "/api/news",
             Self::CharacterSearch => "/api/characters/search",
@@ -804,6 +810,30 @@ fn is_country_states_path(path: &str) -> bool {
 /// True for the pinned nation parties path shape.
 fn is_country_parties_path(path: &str) -> bool {
     is_country_suffix_path(path, "parties")
+}
+
+/// Build the exact nation legislature leadership request path from a
+/// validated country key.
+fn fetch_country_leaders_path(country_code: &str) -> Result<String, String> {
+    if !is_country_code(country_code) {
+        return Err(error::BAD_ARG.to_string());
+    }
+    Ok(format!(
+        "{}/{}/legislature/leaders",
+        MpFetchOp::CountryLeaders.path(),
+        country_code.to_ascii_uppercase()
+    ))
+}
+
+/// True for the pinned nation legislature leadership path shape.
+fn is_country_leaders_path(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/country/") else {
+        return false;
+    };
+    let Some(code) = rest.strip_suffix("/legislature/leaders") else {
+        return false;
+    };
+    is_country_code(code)
 }
 
 /// True for the pinned nation politicians path shape.
@@ -1411,7 +1441,8 @@ fn is_allowlisted_call(method: &str, path_and_query: &str) -> bool {
                     || is_country_overview_path(path)
                     || is_country_states_path(path)
                     || is_country_parties_path(path)
-                    || is_country_politicians_path(path))
+                    || is_country_politicians_path(path)
+                    || is_country_leaders_path(path))
         }
         ("POST", "/api/actions/execute") | ("PATCH", "/api/notifications") => query.is_none(),
         ("PUT", "/api/notifications/preferences") => query.is_none(),
@@ -2194,6 +2225,27 @@ pub async fn mp_session_fetch(
             }
             fetch_path_and_query(op, limit, offset)?
         }
+        MpFetchOp::CountryLeaders => {
+            if limit.is_some()
+                || offset.is_some()
+                || detail.election_id.is_some()
+                || detail.corporation_id.is_some()
+                || detail.union_id.is_some()
+                || detail.cabinet_country_code.is_some()
+                || detail.cabinet_position_id.is_some()
+                || detail.governor_country_code.is_some()
+                || detail.governor_state_id.is_some()
+                || detail.country_code.is_some()
+                || detail.search_query.is_some()
+            {
+                return Err(error::UNSUPPORTED_OP.to_string());
+            }
+            let country = detail
+                .country_code
+                .as_deref()
+                .ok_or_else(|| error::BAD_ARG.to_string())?;
+            fetch_country_leaders_path(country)?
+        }
         MpFetchOp::CharacterSearch => {
             if limit.is_some()
                 || offset.is_some()
@@ -2463,6 +2515,32 @@ mod tests {
             "/api/country/DE/politicians?x=1"
         ));
         assert!(fetch_country_politicians_path("").is_err());
+
+        assert_eq!(
+            MpFetchOp::from_id("country-leaders"),
+            Some(MpFetchOp::CountryLeaders)
+        );
+        assert_eq!(
+            fetch_country_leaders_path("uk").unwrap(),
+            "/api/country/UK/legislature/leaders"
+        );
+        assert!(is_allowlisted_call(
+            "GET",
+            "/api/country/UK/legislature/leaders"
+        ));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/country/UKA/legislature/leaders"
+        ));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/country/UK/legislature/leaders?x=1"
+        ));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/country/UK/legislature/leader"
+        ));
+        assert!(fetch_country_leaders_path("u k").is_err());
 
         assert_eq!(
             MpFetchOp::from_id("election-list"),

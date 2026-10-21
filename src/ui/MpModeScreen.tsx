@@ -81,6 +81,7 @@ const IDLE: MpSnapshot = {
   nationRegions: null,
   nationParties: null,
   nationPoliticians: null,
+  nationLeaders: null,
   electionList: null,
   newsFeed: null,
   characterSearch: null,
@@ -690,10 +691,13 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
       // drill-in; a failed sibling read keeps the nation's figures.
       const withRegions = await s.loadCountryRegions(target);
       const withParties = await s.loadCountryParties(target);
-      return s.loadCountryPoliticians(target).then((withPoliticians) => ({
-        ...withPoliticians,
+      const withPoliticians = await s.loadCountryPoliticians(target);
+      const withLeaders = await s.loadCountryLeaders(target);
+      return {
+        ...withLeaders,
         nationRegions: withParties.nationRegions ?? withRegions.nationRegions,
-      }));
+        nationPoliticians: withPoliticians.nationPoliticians,
+      };
     }).then((next) => {
       if (next?.nationOverview) {
         setNationSelected(target);
@@ -903,6 +907,7 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
   const recipientMatches = snapshot.characterSearch ?? [];
   const nationParties = selectedNation ? snapshot.nationParties : null;
   const nationPoliticians = selectedNation ? snapshot.nationPoliticians : null;
+  const nationLeaders = selectedNation ? snapshot.nationLeaders : null;
   const homeCountryId = snapshot.character?.countryId ?? snapshot.capabilities?.characterCountryId ?? null;
   const turnFounding = snapshot.turn?.preIterationActive === true;
   /* Footer resource parity: the SP footer reads campaign funds from the same
@@ -1458,6 +1463,8 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
               {selectedNation.lowerChamberName && (<><dt>Lower chamber</dt><dd>{selectedNation.lowerChamberName}</dd></>)}
               {selectedNation.upperChamberName && (<><dt>Upper chamber</dt><dd>{selectedNation.upperChamberName}</dd></>)}
               <dt>Central bank</dt><dd>{selectedNation.centralBankName ?? "Not reported"}</dd>
+              {nationLeaders?.primeMinister && (<><dt>Prime minister</dt><dd>{nationLeaders.primeMinister.name}{nationLeaders.primeMinister.party ? " · " + nationLeaders.primeMinister.party : ""}</dd></>)}
+              {nationLeaders?.oppositionLeader && (<><dt>Opposition leader</dt><dd>{nationLeaders.oppositionLeader.name}{nationLeaders.oppositionLeader.party ? " · " + nationLeaders.oppositionLeader.party : ""}</dd></>)}
               {selectedNation.executiveTitle && (<><dt>Executive</dt><dd>{selectedNation.executiveTitle}</dd></>)}
               {nationOverview && (<>
                 <dt>GDP</dt><dd>{nationOverview.gdpMillions !== null ? "$" + nationOverview.gdpMillions.toLocaleString("en-US") + "M" : "Not reported"}</dd>
