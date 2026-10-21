@@ -1008,3 +1008,24 @@ Focused evidence: `src/ui/MpNations510.test.tsx` (the leadership rows ride
 the nation drill-in), `src/mp/nations.test.ts` (the projection, the invalid
 code refusal, the last-good-holders posture) and the Rust path/allowlist
 assertions. No physical-iPhone evidence is claimed; #363/#436 remain open.
+
+## 31. MP notification preview and nation search (#510)
+
+Two behaviours the reference status bar and the singleplayer world
+directory have and multiplayer did not.
+
+Delivered:
+
+- The multiplayer Inbox chip opens a notification preview, the way the
+  reference bell and the singleplayer footer bell do: the latest
+  notifications, the unread count, and a link into the inbox. The preview
+  reads the same server inbox the inbox list shows; it never claims a
+  notification the server did not send.
+- The multiplayer Nations destination gained the search field the
+  singleplayer world directory has, filtering the rows by name or country
+  code.
+
+Focused evidence: `src/ui/MpPreviewParity510.test.tsx` (2 rendered tests:
+the preview lists the latest notifications and links into the inbox, the
+nation directory filters by name). No physical-iPhone evidence is claimed;
+#363/#436 remain open.
