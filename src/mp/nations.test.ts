@@ -176,6 +176,61 @@ describe("MpModeSession loadCountryRegions", () => {
   });
 });
 
+describe("MpModeSession loadElectionList", () => {
+  const electionList = JSON.stringify({
+    elections: [
+      {
+        id: "68a000000000000000000001",
+        electionType: "senate",
+        state: "CA",
+        countryId: "US",
+        cycle: 3,
+        status: "active",
+        inPrimary: false,
+        isEnded: false,
+        isUpcoming: false,
+        inGeneral: true,
+        candidates: [{ id: "c1" }],
+      },
+    ],
+    total: 1,
+    page: 1,
+  });
+
+  it("projects the nation's races", async () => {
+    const { host, calls } = scriptedHost(enterScripts({ "election-list": [electionList] }));
+    const session = new MpModeSession(host);
+    await session.enter();
+    const snapshot = await session.loadElectionList("US");
+    expect(snapshot.electionList?.[0]).toMatchObject({
+      id: "68a000000000000000000001",
+      electionType: "senate",
+      status: "active",
+      candidateCount: 1,
+    });
+    expect(snapshot.phase).toBe("ready");
+    expect(snapshot.error).toBeNull();
+    expect(calls.filter((call) => call === "fetch:election-list")).toHaveLength(1);
+  });
+
+  it("never sends an invalid country code and keeps the last good list", async () => {
+    const { host, calls } = scriptedHost(
+      enterScripts({ "election-list": [electionList, { reject: "remote-error:500:Server error" }] }),
+    );
+    const session = new MpModeSession(host);
+    await session.enter();
+    const rejected = await session.loadElectionList("usa");
+    expect(rejected.electionList).toBeNull();
+    expect(calls.filter((call) => call === "fetch:election-list")).toHaveLength(0);
+
+    await session.loadElectionList("US");
+    const failed = await session.loadElectionList("US");
+    expect(failed.electionList?.[0]?.electionType).toBe("senate");
+    expect(failed.phase).toBe("ready");
+    expect(failed.error).toBeNull();
+  });
+});
+
 describe("MpModeSession loadCountryParties and loadCountryPoliticians", () => {
   const parties = JSON.stringify({
     parties: [

@@ -813,15 +813,13 @@ export interface MpElectionDetailView {
 }
 
 /**
- * election-detail: the route wraps the resolved race as { election }. The
- * summary view always carries identity, phase, and the candidates array
- * (enrichElection core data); polling and incumbent are nullable decorations
- * that degrade to null individually. Anything else fails closed.
+ * Project one resolved election (summary view) from the audited reference
+ * shape. Shared by the single-election read and the country list read, so
+ * both project the same fields from the same payload.
  */
-export function parseElectionDetail(bodyText: string): MpElectionDetailView | null {
-  const record = asRecord(parseJsonBody(bodyText));
-  const election = record ? asRecord(record.election) : null;
-  if (!election) return null;
+function projectElectionSummary(
+  election: Record<string, unknown>,
+): MpElectionDetailView | null {
   const id = asTrimmedString(election.id);
   const electionType = asTrimmedString(election.electionType);
   const countryId = asTrimmedString(election.countryId);
@@ -856,6 +854,39 @@ export function parseElectionDetail(bodyText: string): MpElectionDetailView | nu
     incumbentName: incumbent ? asTrimmedString(incumbent.name ?? null) : null,
     incumbentParty: incumbent ? asTrimmedString(incumbent.party ?? null) : null,
   };
+}
+
+/**
+ * election-detail: the route wraps the resolved race as { election }. The
+ * summary view always carries identity, phase, and the candidates array
+ * (enrichElection core data); polling and incumbent are nullable decorations
+ * that degrade to null individually. Anything else fails closed.
+ */
+export function parseElectionDetail(bodyText: string): MpElectionDetailView | null {
+  const record = asRecord(parseJsonBody(bodyText));
+  const election = record ? asRecord(record.election) : null;
+  if (!election) return null;
+  return projectElectionSummary(election);
+}
+
+/**
+ * election-list: GET /api/elections?country={code}&view=summary answers the
+ * nation's races as {elections:[...], total, page}. The list items are the
+ * same resolved summary the single-election read returns, so a malformed
+ * race invalidates the list rather than half-inventing a directory.
+ */
+export function parseElectionList(bodyText: string): MpElectionDetailView[] | null {
+  const record = asRecord(parseJsonBody(bodyText));
+  if (!record || !Array.isArray(record.elections)) return null;
+  const elections: MpElectionDetailView[] = [];
+  for (const entry of record.elections) {
+    const item = asRecord(entry);
+    if (!item) return null;
+    const election = projectElectionSummary(item);
+    if (!election) return null;
+    elections.push(election);
+  }
+  return elections;
 }
 
 /**

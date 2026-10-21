@@ -18,6 +18,7 @@ import {
   parseCountryStates,
   parseCorporationDetail,
   parseElectionDetail,
+  parseElectionList,
   parseExecuteResult,
   parseGovernorDetail,
   parseInbox,
@@ -608,6 +609,45 @@ describe("parseCountryOverview", () => {
   it("rejects an error envelope and a malformed body", () => {
     expect(parseCountryOverview(JSON.stringify({ error: "Invalid country code" }))).toBeNull();
     expect(parseCountryOverview("not json")).toBeNull();
+  });
+});
+
+describe("parseElectionList", () => {
+  const race = {
+    id: "68a000000000000000000001",
+    seatId: "US-senate-CA-1",
+    electionType: "senate",
+    state: "CA",
+    countryId: "US",
+    cycle: 3,
+    status: "active",
+    inPrimary: false,
+    isEnded: false,
+    isUpcoming: false,
+    inGeneral: true,
+    candidates: [{ id: "c1" }],
+    polling: { leaderName: "Ada", leaderParty: "Labor" },
+    incumbent: { name: "Grace", party: "Labor" },
+  };
+
+  it("projects the nation's races", () => {
+    const list = parseElectionList(JSON.stringify({ elections: [race], total: 1, page: 1 }));
+    expect(list).toHaveLength(1);
+    expect(list?.[0]).toMatchObject({
+      id: "68a000000000000000000001",
+      electionType: "senate",
+      state: "CA",
+      status: "active",
+      candidateCount: 1,
+      leaderName: "Ada",
+      incumbentName: "Grace",
+    });
+  });
+
+  it("fails closed on a malformed list", () => {
+    expect(parseElectionList(JSON.stringify({ elections: [{ id: "x" }] }))).toBeNull();
+    expect(parseElectionList(JSON.stringify({ elections: "nope" }))).toBeNull();
+    expect(parseElectionList("not json")).toBeNull();
   });
 });
 

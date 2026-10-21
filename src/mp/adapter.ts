@@ -11,6 +11,7 @@ import {
   parseCountryStates,
   parseCorporationDetail,
   parseElectionDetail,
+  parseElectionList,
   parseExecuteResult,
   parseGovernorDetail,
   parseInbox,
@@ -139,6 +140,11 @@ export interface MpSnapshot {
    * /api/country/[code]/politicians.
    */
   nationPoliticians: MpNationPoliticianView[] | null;
+  /**
+   * A nation's election list, from
+   * /api/elections?country={code}&view=summary. Loaded on demand.
+   */
+  electionList: MpElectionDetailView[] | null;
   /** Last server-confirmed notice (action result); cleared on next load. */
   notice: string | null;
   /** Last human-readable failure; cleared when a call succeeds. */
@@ -170,6 +176,7 @@ const INITIAL_SNAPSHOT: MpSnapshot = {
   nationRegions: null,
   nationParties: null,
   nationPoliticians: null,
+  electionList: null,
   notice: null,
   error: null,
   retryAfter: null,
@@ -186,9 +193,9 @@ export const MP_MAIL_LIMIT = 50;
 
 function emptyAuthed(): Pick<
   MpSnapshot,
-  "character" | "savings" | "turn" | "capabilities" | "electionDetail" | "corporationDetail" | "unionDetail" | "cabinetDetail" | "governorDetail" | "inbox" | "mailInbox" | "mailSent" | "presence" | "status" | "nations" | "nationOverview" | "nationRegions" | "nationParties" | "nationPoliticians"
+  "character" | "savings" | "turn" | "capabilities" | "electionDetail" | "corporationDetail" | "unionDetail" | "cabinetDetail" | "governorDetail" | "inbox" | "mailInbox" | "mailSent" | "presence" | "status" | "nations" | "nationOverview" | "nationRegions" | "nationParties" | "nationPoliticians" | "electionList"
 > {
-  return { character: null, savings: null, turn: null, capabilities: null, electionDetail: null, corporationDetail: null, unionDetail: null, cabinetDetail: null, governorDetail: null, inbox: null, mailInbox: null, mailSent: null, presence: null, status: null, nations: null, nationOverview: null, nationRegions: null, nationParties: null, nationPoliticians: null };
+  return { character: null, savings: null, turn: null, capabilities: null, electionDetail: null, corporationDetail: null, unionDetail: null, cabinetDetail: null, governorDetail: null, inbox: null, mailInbox: null, mailSent: null, presence: null, status: null, nations: null, nationOverview: null, nationRegions: null, nationParties: null, nationPoliticians: null, electionList: null };
 }
 
 export class MpModeSession {
@@ -678,6 +685,38 @@ export class MpModeSession {
       const nationPoliticians = parseCountryPoliticians(result.bodyText);
       if (!nationPoliticians) return this.get();
       return this.set({ nationPoliticians });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
+   * Read a nation's election list (#510 world destinations). GET
+   * /api/elections?country={code}&view=summary is public with optional
+   * auth; the code is checked here and again by the Rust bridge. A failed
+   * read keeps the previous list and never fails the session. Never
+   * throws.
+   */
+  async loadElectionList(code: unknown): Promise<MpSnapshot> {
+    if (!isCountryCode(code)) return this.get();
+    try {
+      const result = await mpFetch(
+        this.host,
+        "election-list",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        code,
+      );
+      if (result.kind !== "ok") return this.get();
+      const electionList = parseElectionList(result.bodyText);
+      if (!electionList) return this.get();
+      return this.set({ electionList });
     } catch {
       return this.get();
     }

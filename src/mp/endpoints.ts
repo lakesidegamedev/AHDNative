@@ -79,6 +79,14 @@
  *   {politicians:[{id,name,party,partyName,countryId,homeState,
  *   homeStateName,currentOffice,officeType,politicalInfluence,
  *   nationalInfluence,favorability,funds,isNPP}],total,playerCount,nppCount}.
+ * - election-list     GET /api/elections?country={code}&view=summary
+ *   public with optional auth; 400 on an invalid country. The nation's
+ *   races (AHDGame src/app/api/elections/route.ts list mode): 200
+ *   {elections:[{id,seatId,electionType,state,countryId,cycle,status,
+ *   inPrimary,isEnded,isUpcoming,inGeneral,candidates,polling,incumbent}],
+ *   total, page}. The list items are the same resolved summary the
+ *   single-election read returns, so Native projects them through one
+ *   shared projection.
  * - turn-status       /api/game/turn/status    public; 404 uninitialized
  *   {singleplayer,currentTurn,currentYear,startingYear,preset,
  *   preIterationTurns,preIterationActive,isActive,isProcessing,
@@ -369,7 +377,8 @@ export type MpFetchOpId =
   | "country-overview"
   | "country-states"
   | "country-parties"
-  | "country-politicians";
+  | "country-politicians"
+  | "election-list";
 
 export type MpMutateOpId =
   | "execute-action"

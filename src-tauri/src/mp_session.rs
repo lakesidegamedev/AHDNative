@@ -183,6 +183,11 @@ pub enum MpFetchOp {
     /// The nation's politicians; GET /api/country/[code]/politicians
     /// (public, no auth, 400 on an invalid country).
     CountryPoliticians,
+    /// A nation's election list; GET /api/elections?country={code}&view=
+    /// summary (public with optional auth, 400 on an invalid country).
+    /// The country code is a two-letter COUNTRY_CONFIGS key; see
+    /// [`is_country_code`].
+    ElectionList,
 }
 
 impl MpFetchOp {
@@ -210,6 +215,7 @@ impl MpFetchOp {
             "country-states" => Some(Self::CountryStates),
             "country-parties" => Some(Self::CountryParties),
             "country-politicians" => Some(Self::CountryPoliticians),
+            "election-list" => Some(Self::ElectionList),
             _ => None,
         }
     }
@@ -238,6 +244,7 @@ impl MpFetchOp {
             Self::CountryStates => "/api/country",
             Self::CountryParties => "/api/country",
             Self::CountryPoliticians => "/api/country",
+            Self::ElectionList => "/api/elections",
         }
     }
 }
@@ -1153,6 +1160,45 @@ fn is_election_query(query: &str) -> bool {
     id_ok && view_ok
 }
 
+/// Election list query: exactly `country=<validated country key>&view=
+/// summary`. The country key is uppercased by the builder, so the check
+/// accepts either case and rejects anything that is not a two-letter key.
+fn is_election_list_query(query: &str) -> bool {
+    let mut country_ok = false;
+    let mut view_ok = false;
+    for pair in query.split('&') {
+        let (key, value) = pair.split_once('=').unwrap_or(("", ""));
+        match key {
+            "country" => {
+                if country_ok || !is_country_code(&value.to_ascii_uppercase()) {
+                    return false;
+                }
+                country_ok = true;
+            }
+            "view" => {
+                if view_ok || value != "summary" {
+                    return false;
+                }
+                view_ok = true;
+            }
+            _ => return false,
+        }
+    }
+    country_ok && view_ok
+}
+
+/// Build the exact election list request path from a validated country key.
+fn fetch_election_list_path(country_code: &str) -> Result<String, String> {
+    if !is_country_code(country_code) {
+        return Err(error::BAD_ARG.to_string());
+    }
+    Ok(format!(
+        "{}?country={}&view=summary",
+        MpFetchOp::ElectionList.path(),
+        country_code.to_ascii_uppercase()
+    ))
+}
+
 /// Corporation detail path: exactly `/api/corporations/<validated id>`
 /// with no query string. The id segment re-validates here so a future
 /// refactor of [`fetch_corporation_path`] cannot widen the pin.
@@ -1251,7 +1297,8 @@ fn is_allowlisted_call(method: &str, path_and_query: &str) -> bool {
             }
         }
         ("GET", "/api/elections") => match query {
-            Some(query) => is_election_query(query),
+            // The detail read pins id+view; the list read pins country+view.
+            Some(query) => is_election_query(query) || is_election_list_query(query),
             None => false,
         },
         ("GET", path) if path.starts_with("/api/corporations/") => {
@@ -2024,6 +2071,25 @@ pub async fn mp_session_fetch(
                 .ok_or_else(|| error::BAD_ARG.to_string())?;
             fetch_country_politicians_path(country)?
         }
+        MpFetchOp::ElectionList => {
+            if limit.is_some()
+                || offset.is_some()
+                || detail.election_id.is_some()
+                || detail.corporation_id.is_some()
+                || detail.union_id.is_some()
+                || detail.cabinet_country_code.is_some()
+                || detail.cabinet_position_id.is_some()
+                || detail.governor_country_code.is_some()
+                || detail.governor_state_id.is_some()
+            {
+                return Err(error::UNSUPPORTED_OP.to_string());
+            }
+            let country = detail
+                .country_code
+                .as_deref()
+                .ok_or_else(|| error::BAD_ARG.to_string())?;
+            fetch_election_list_path(country)?
+        }
         _ => {
             if detail.election_id.is_some()
                 || detail.corporation_id.is_some()
@@ -2214,6 +2280,33 @@ mod tests {
             "/api/country/DE/politicians?x=1"
         ));
         assert!(fetch_country_politicians_path("").is_err());
+
+        assert_eq!(
+            MpFetchOp::from_id("election-list"),
+            Some(MpFetchOp::ElectionList)
+        );
+        assert_eq!(
+            fetch_election_list_path("us").unwrap(),
+            "/api/elections?country=US&view=summary"
+        );
+        assert!(is_allowlisted_call(
+            "GET",
+            "/api/elections?country=US&view=summary"
+        ));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/elections?country=USA&view=summary"
+        ));
+        assert!(!is_allowlisted_call("GET", "/api/elections?country=US"));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/elections?country=US&view=full"
+        ));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/elections?country=US&view=summary&x=1"
+        ));
+        assert!(fetch_election_list_path("u1").is_err());
     }
 
     #[test]

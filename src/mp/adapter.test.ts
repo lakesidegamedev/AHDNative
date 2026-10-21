@@ -206,6 +206,7 @@ describe("MpModeSession enter", () => {
       nationRegions: null,
       nationParties: null,
       nationPoliticians: null,
+      electionList: null,
       notice: null,
       error: null,
       retryAfter: null,

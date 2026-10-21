@@ -820,3 +820,31 @@ physical-iPhone evidence is claimed; #363/#436 remain open.
 
 Still open under #510: the region drill-in, the world map, the hall of fame,
 and the remaining world destinations.
+
+## 23. MP Elections destination (#510)
+
+Singleplayer has an Elections surface; multiplayer only offered the Standing
+drill-in for one active race, so a player could not see the nation's other
+races at all.
+
+Delivered:
+
+- The MP drawer gained a World > Elections destination. It reads the
+  nation's races from the public election list read
+  (`GET /api/elections?country={code}&view=summary`) and renders each race
+  with its type, region and phase.
+- A row opens the same race detail the Standing drill-in uses, so the list
+  and the drill-in share one projection and one detail panel.
+- The Rust bridge pins the query shape (a two-letter country key plus
+  `view=summary`) and the transport allowlist accepts only that shape; the
+  adapter refuses to send an invalid country code.
+- The list loads for the player's own nation and reports honestly when the
+  nation has no open races, when the character has no nation yet, and when
+  the read fails.
+
+Focused evidence: `src/ui/MpElections510.test.tsx` (3 rendered tests: the
+race list and the race detail, the empty state, the failure state),
+`src/mp/nations.test.ts` (the election list projection, the invalid-code
+refusal, the last-good-list posture) and the Rust test
+`mp_session::tests::world_reads_resolve_to_pinned_paths`. No
+physical-iPhone evidence is claimed; #363/#436 remain open.

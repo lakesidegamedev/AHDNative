@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { BottomNav, GameDrawerFrame } from "./MobileNavigation";
 import { MpModeSession, type MpSnapshot } from "../mp/adapter";
 import { tauriMpBridgeHost, type MpBridgeHost } from "../mp/bridge";
-import { isCabinetCountryCode, isCabinetPositionId, isCorporationId, isElectionId, isGovernorCountryCode, isGovernorStateId, isUnionId, type MpNationView } from "../mp/validators";
+import { isCabinetCountryCode, isCabinetPositionId, isCorporationId, isElectionId, isGovernorCountryCode, isGovernorStateId, isUnionId, type MpElectionDetailView, type MpNationView } from "../mp/validators";
 import { MP_EXECUTE_ACTIONS, MP_NOTIFICATION_TYPES, MP_SNOOZE_MINUTES_DEFAULT } from "../mp/endpoints";
 import { formatTurnCountdown } from "../mp/validators";
 import { turnPollDelay } from "../mp/turnPoll";
@@ -80,6 +80,7 @@ const IDLE: MpSnapshot = {
   nationRegions: null,
   nationParties: null,
   nationPoliticians: null,
+  electionList: null,
   notice: null,
   error: null,
   retryAfter: null,
@@ -103,6 +104,15 @@ const MP_ACTION_CATEGORIES: Record<string, ActionsCategoryFilter> = {
   campaign: "influence", advertise: "influence",
   poll: "intelligence", pollLarge: "intelligence", debatePrep: "intelligence",
 };
+
+/**
+ * Race label for the election list: the race type, its region when it has
+ * one, and its phase, so a row reads like the reference election list.
+ */
+function electionLabel(election: MpElectionDetailView): string {
+  const seat = election.state ? " \u2014 " + election.state : "";
+  return election.electionType + seat + " \u00b7 " + election.status;
+}
 
 /**
  * Nation label with its flag, the way the reference nation switcher renders
@@ -164,6 +174,7 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
    * destination opens, and a failed read reports honestly instead of
    * spinning forever. */
   const [nationsLoading, setNationsLoading] = useState(false);
+  const [electionsLoading, setElectionsLoading] = useState(false);
 
   useEffect(() => {
     const session = sessionRef.current!;
@@ -377,6 +388,23 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
     // relaxed (120s). Timers are cleared on every phase change, so this
     // cannot stack pollers.
   }, [snapshot.phase]);
+
+  /* Election list (#510 world destinations). The nation's races come from
+   * the public election list read; it loads when the destination opens and
+   * never blocks the session. A failed read keeps the last good list. */
+  useEffect(() => {
+    if (activeSection !== "mp-elections") return;
+    const session = sessionRef.current!;
+    const current = session.get();
+    if (current.phase !== "ready" || current.electionList) return;
+    const country = current.character?.countryId ?? current.capabilities?.characterCountryId ?? null;
+    if (!country) return;
+    setElectionsLoading(true);
+    void session.loadElectionList(country).then((next) => {
+      setElectionsLoading(false);
+      setSnapshot(next);
+    });
+  }, [activeSection, snapshot.electionList]);
 
   /* Nation directory (#510 world destinations). The directory read is
    * public, so it loads when the destination opens and never blocks the
@@ -746,6 +774,7 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
     : null;
   const nationOverview = selectedNation ? snapshot.nationOverview : null;
   const nationRegions = selectedNation ? snapshot.nationRegions : null;
+  const electionList = snapshot.electionList;
   const nationParties = selectedNation ? snapshot.nationParties : null;
   const nationPoliticians = selectedNation ? snapshot.nationPoliticians : null;
   const homeCountryId = snapshot.character?.countryId ?? snapshot.capabilities?.characterCountryId ?? null;
@@ -808,7 +837,7 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
         <header className="ahd-mp-row ahd-mp-heading" aria-label="Multiplayer header">
           <div style={{ minWidth: 0 }}>
             <p className="ahd-eyebrow">Multiplayer</p>
-            {activeSection !== "mp-profile" && activeSection !== "mp-settings" && activeSection !== "mp-actions" && activeSection !== "mp-ask" && <h1 className="ahd-h1" id="mp-top" tabIndex={-1}>{({ "mp-profile": "Profile", "mp-actions": "Actions", "mp-wallet": "Wallet", "mp-inbox": "Notifications", "mp-mail": "Mail", "mp-settings": "Settings", "mp-nations": "Nations" } as Record<string, string>)[activeSection] ?? "Details"}</h1>}
+            {activeSection !== "mp-profile" && activeSection !== "mp-settings" && activeSection !== "mp-actions" && activeSection !== "mp-ask" && <h1 className="ahd-h1" id="mp-top" tabIndex={-1}>{({ "mp-profile": "Profile", "mp-actions": "Actions", "mp-wallet": "Wallet", "mp-inbox": "Notifications", "mp-mail": "Mail", "mp-settings": "Settings", "mp-nations": "Nations", "mp-elections": "Elections" } as Record<string, string>)[activeSection] ?? "Details"}</h1>}
             {snapshot.username && <p className="ahd-muted" style={{ margin: 0 }}>Playing as {snapshot.username}</p>}
           </div>
         </header>
@@ -1223,6 +1252,37 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
           </div>
           </>
         )}
+
+        {/* Elections (#510 world destinations): the player's nation's
+          * races from the public election list read, each opening the
+          * same race detail the Standing drill-in uses. */}
+        <section id="mp-elections" className="ahd-card ahd-card-pad" aria-label="Elections" tabIndex={-1} hidden={activeSection !== "mp-elections"}>
+          <h2 className="ahd-h2">Elections</h2>
+          {electionList && electionList.length > 0 ? (
+            <ul className="ahd-mp-list" aria-label="National elections">
+              {electionList.map((election) => (
+                <li key={election.id}>
+                  <button type="button" className="ahd-profile-link" onClick={() => openElection(election.id)}>
+                    {electionLabel(election)}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="ahd-muted">
+              {electionsLoading
+                ? "Loading the national races\u2026"
+                : homeCountryId
+                  ? "No open races in this nation right now."
+                  : "Your character has no nation yet."}
+            </p>
+          )}
+        </section>
+        <div hidden={activeSection !== "mp-elections"} className="ahd-mp-row ahd-mp-back">
+          <button className="ahd-btn ahd-btn-sm ahd-btn-ghost" onClick={() => jumpTo("mp-top")}>
+            Back to Standing
+          </button>
+        </div>
 
         {/* Nations (#510 world destinations): the runtime nation directory
           * from the public /api/countries read, with the selected nation's
@@ -1763,6 +1823,9 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
             <span className="ahd-label">World</span>
             <button className="ahd-drawer-item" aria-current={activeSection === "mp-nations" ? "page" : undefined} data-active={activeSection === "mp-nations" ? "true" : undefined} onClick={() => navigateFromMenu("mp-nations")}>
               Nations
+            </button>
+            <button className="ahd-drawer-item" aria-current={activeSection === "mp-elections" ? "page" : undefined} data-active={activeSection === "mp-elections" ? "true" : undefined} onClick={() => navigateFromMenu("mp-elections")}>
+              Elections
             </button>
           </nav>
 
