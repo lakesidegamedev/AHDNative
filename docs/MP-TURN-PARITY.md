@@ -154,12 +154,14 @@ remains #363/#436 and is not claimed here.
 
 ## Remaining parity gaps
 
-- The pinned minimal status layout does not carry the campaign income
-  breakdown, corporation nav, election stats or turn briefing, so the MP
-  footer shows the resource figures without the reference's per-turn income
-  tooltip. Reading the wider layout would run the reference's heavier
-  enrichment queries; that trade is still open.
+- The campaign income breakdown now arrives, but only from the wide status
+  layout, which the funds details read on demand. The corporation nav,
+  election stats and turn briefing the wider layout also carries are still
+  unprojected.
 - Turn freshness is poll-based like the reference StatusBar; there is no
   separate Native stream for the reference's typed turn/market events.
-- Whole-app MP/SP destination parity remains tracked by #510 and #28. This
-  slice closes the turn contract/freshness/footer gaps only.
+- Whole-app MP/SP destination parity remains tracked by #510 and #28. The
+  turn contract, the calendar, the footer resources and their details, and
+  the world destinations are delivered; the world map, the hall of fame, the
+  remaining per-nation drill-ins, the markets and holdings surfaces, and the
+  physical-device acceptance are not.
