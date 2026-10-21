@@ -51,7 +51,7 @@ unqualified cash number.
 
 | Destination | SP | MP | Remaining parity |
 |---|---|---|---|
-| Profile | Persisted character, standing, policy, finances and conditional sections | Shared identity plus reported AP/cash and Standing | MP full profile projection/editing; SP military/business and engine-backed omissions |
+| Profile | Persisted character, standing, policy, finances and conditional sections | Shared identity (resolved party and home-region names) plus reported AP/cash and Standing | MP full profile projection/editing; SP military/business and engine-backed omissions |
 | Actions | Categorized local commands with quotes | Categorized existing nine server actions and batch controls | Targeting journeys, complete catalog and consistent quoted eligibility |
 | Ask | Embedded panel | Embedded panel retains MP session and drafts | Physical-device sign-in return |
 | Wallet / Portfolio / Banking | Local balances, holdings and commands | Reported aggregate, campaign funds, currency balances and server savings commands | Bank selection, FX, loans, holdings and monetary-policy controls |

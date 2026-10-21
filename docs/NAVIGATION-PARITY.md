@@ -848,3 +848,26 @@ race list and the race detail, the empty state, the failure state),
 refusal, the last-good-list posture) and the Rust test
 `mp_session::tests::world_reads_resolve_to_pinned_paths`. No
 physical-iPhone evidence is claimed; #363/#436 remain open.
+
+## 24. MP identity labels (#510)
+
+The character record carries the party key (a numeric id on the live
+server) and only the region key, so the reference resolves both names from
+client-nav (`currentParty.name`, `homeState.name`). Multiplayer showed the
+raw keys: the footer and the profile chip read "12" where the reference
+shows a party's name, and the home region showed "CA" where the reference
+shows "California".
+
+Delivered:
+
+- `client-nav` now projects the home region's id and name and the current
+  party's id and name.
+- The MP profile and the MP footer identity use the resolved names. A
+  character with no party shows no party chip (or "Independent" in the
+  footer, as the reference does), and a legacy non-numeric party key is
+  still shown rather than dropped.
+
+Focused evidence: `src/ui/MpIdentityLabels510.test.tsx` (2 rendered tests:
+the resolved names replace the raw keys, an unaffiliated character shows no
+party chip) and `src/mp/validators.test.ts` (the client-nav projection). No
+physical-iPhone evidence is claimed; #363/#436 remain open.

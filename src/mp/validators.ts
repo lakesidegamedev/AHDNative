@@ -363,6 +363,19 @@ export interface MpCapabilitiesView {
   unreadMailCount: number | null;
   /** client-nav campaign funds; the SP footer's Funds chip reads the same figure. */
   funds: number | null;
+  /**
+   * client-nav homeState: the player's home region, as the reference shows
+   * it. `character-me` reports only the region key, so the name comes from
+   * here.
+   */
+  homeStateId: string | null;
+  homeStateName: string | null;
+  /**
+   * client-nav currentParty: the player's party, as the reference shows it.
+   * `character-me` reports the party key, so the name comes from here.
+   */
+  currentPartyId: string | null;
+  currentPartyName: string | null;
   corporationId: number | null;
   unionId: string | null;
   activeElectionLabel: string | null;
@@ -399,6 +412,8 @@ export function parseClientNav(bodyText: string): MpCapabilitiesView | null {
   const election = asRecord(record.activeElection);
   const cabinet = asRecord(record.cabinetOffice);
   const governor = asRecord(record.governorOffice);
+  const homeState = asRecord(record.homeState);
+  const currentParty = asRecord(record.currentParty);
   // The briefing drill-in needs the seat slug plus the country key, not the
   // display name. A half-valid pair signals a drifting payload, so both
   // degrade to null unless both validate; the display name stands alone.
@@ -422,6 +437,10 @@ export function parseClientNav(bodyText: string): MpCapabilitiesView | null {
     characterCountryId: asTrimmedString(record.characterCountryId ?? null),
     unreadMailCount: record.unreadMailCount === undefined ? null : asNumber(record.unreadMailCount),
     funds: record.funds === undefined ? null : asNumber(record.funds),
+    homeStateId: homeState ? asTrimmedString(homeState.id ?? null) : null,
+    homeStateName: homeState ? asTrimmedString(homeState.name ?? null) : null,
+    currentPartyId: currentParty ? asTrimmedString(currentParty.id ?? null) : null,
+    currentPartyName: currentParty ? asTrimmedString(currentParty.name ?? null) : null,
     corporationId: asCorporationCapabilityId(record.myCorporationId),
     unionId: asTrimmedString(record.myUnionId ?? null),
     activeElectionLabel: election ? asTrimmedString(election.label ?? null) : null,

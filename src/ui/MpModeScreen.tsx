@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { BottomNav, GameDrawerFrame } from "./MobileNavigation";
 import { MpModeSession, type MpSnapshot } from "../mp/adapter";
 import { tauriMpBridgeHost, type MpBridgeHost } from "../mp/bridge";
-import { isCabinetCountryCode, isCabinetPositionId, isCorporationId, isElectionId, isGovernorCountryCode, isGovernorStateId, isUnionId, type MpElectionDetailView, type MpNationView } from "../mp/validators";
+import { isCabinetCountryCode, isCabinetPositionId, isCorporationId, isElectionId, isGovernorCountryCode, isGovernorStateId, isUnionId, type MpCapabilitiesView, type MpCharacterView, type MpElectionDetailView, type MpNationView } from "../mp/validators";
 import { MP_EXECUTE_ACTIONS, MP_NOTIFICATION_TYPES, MP_SNOOZE_MINUTES_DEFAULT } from "../mp/endpoints";
 import { formatTurnCountdown } from "../mp/validators";
 import { turnPollDelay } from "../mp/turnPoll";
@@ -104,6 +104,35 @@ const MP_ACTION_CATEGORIES: Record<string, ActionsCategoryFilter> = {
   campaign: "influence", advertise: "influence",
   poll: "intelligence", pollLarge: "intelligence", debatePrep: "intelligence",
 };
+
+/**
+ * Party label for the multiplayer identity surfaces. The character record
+ * carries the party key (a numeric id on the live server), so the resolved
+ * name from client-nav is preferred; a legacy non-numeric key is still
+ * shown, and an unaffiliated character shows no party at all rather than a
+ * raw key.
+ */
+function profilePartyName(
+  character: MpCharacterView | null,
+  capabilities: MpCapabilitiesView | null,
+): string | null {
+  const name = capabilities?.currentPartyName ?? null;
+  if (name) return name;
+  const raw = character?.party ?? null;
+  if (!raw || raw === "independent") return null;
+  return /^\d+$/.test(raw) ? null : raw;
+}
+
+/**
+ * Home region label for the multiplayer identity surfaces: the region name
+ * from client-nav, with the character record's region key as the fallback.
+ */
+function profileHomeName(
+  character: MpCharacterView | null,
+  capabilities: MpCapabilitiesView | null,
+): string | null {
+  return capabilities?.homeStateName ?? character?.homeState ?? null;
+}
 
 /**
  * Race label for the election list: the race type, its region when it has
@@ -774,6 +803,8 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
     : null;
   const nationOverview = selectedNation ? snapshot.nationOverview : null;
   const nationRegions = selectedNation ? snapshot.nationRegions : null;
+  const profileParty = profilePartyName(snapshot.character, snapshot.capabilities);
+  const profileHome = profileHomeName(snapshot.character, snapshot.capabilities);
   const electionList = snapshot.electionList;
   const nationParties = selectedNation ? snapshot.nationParties : null;
   const nationPoliticians = selectedNation ? snapshot.nationPoliticians : null;
@@ -909,8 +940,8 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
               <ProfileIdentity name={snapshot.character.name} heroImage={PROFILE_HERO_IMAGE}
                 avatarUrl={snapshot.character.avatarUrl}
                 heroAlt="Politicians meeting in a national chamber" eyebrow="Profile"
-                party={snapshot.character.party ? { name: snapshot.character.party } : null}
-                home={snapshot.character.homeState ? { label: snapshot.character.homeState } : null}
+                party={profileParty ? { name: profileParty } : null}
+                home={profileHome ? { label: profileHome } : null}
                 country={{ label: snapshot.character.countryId ?? "Country not reported" }} />
               <dl className="ahd-mp-facts">
                 {snapshot.character.actions !== null && (<><dt>Action points</dt><dd>{snapshot.character.actions}</dd></>)}
@@ -1868,7 +1899,7 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
                   {snapshot.character.name}
                 </button>
                 <span className="ahd-muted ahd-status-identity-context">
-                  {snapshot.character.party || "Independent"} · {snapshot.character.countryId ?? "Unknown"}
+                  {profileParty ?? "Independent"} · {snapshot.character.countryId ?? "Unknown"}
                 </span>
               </span>
             )}
