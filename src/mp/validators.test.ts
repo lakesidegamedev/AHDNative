@@ -13,6 +13,8 @@ import {
   parseClientStatus,
   parseCountries,
   parseCountryOverview,
+  parseCountryParties,
+  parseCountryPoliticians,
   parseCountryStates,
   parseCorporationDetail,
   parseElectionDetail,
@@ -465,6 +467,106 @@ describe("parseCountryStates", () => {
     expect(parseCountryStates(JSON.stringify({ states: [{ id: "CA" }] }))).toBeNull();
     expect(parseCountryStates(JSON.stringify({ states: {} }))).toBeNull();
     expect(parseCountryStates("not json")).toBeNull();
+  });
+});
+
+describe("parseCountryParties", () => {
+  it("projects the nation parties", () => {
+    expect(
+      parseCountryParties(
+        JSON.stringify({
+          parties: [
+            {
+              id: "12",
+              objectId: "68a000000000000000000001",
+              name: "Labour Party",
+              abbreviation: "LP",
+              chair: { id: "c1", name: "Ada" },
+              viceChair: null,
+              memberCount: 42,
+              playerCount: 30,
+              nppCount: 12,
+              economicPosition: "social",
+              socialPosition: "liberal",
+              tier: "major",
+            },
+          ],
+        }),
+      ),
+    ).toEqual([
+      {
+        id: "12",
+        objectId: "68a000000000000000000001",
+        name: "Labour Party",
+        abbreviation: "LP",
+        memberCount: 42,
+        playerCount: 30,
+        nppCount: 12,
+        chairName: "Ada",
+        economicPosition: "social",
+        socialPosition: "liberal",
+        tier: "major",
+      },
+    ]);
+  });
+
+  it("fails closed on a malformed party list", () => {
+    expect(parseCountryParties(JSON.stringify({ parties: [{ id: "12" }] }))).toBeNull();
+    expect(parseCountryParties(JSON.stringify({ parties: {} }))).toBeNull();
+    expect(parseCountryParties("not json")).toBeNull();
+  });
+});
+
+describe("parseCountryPoliticians", () => {
+  it("projects the nation politicians", () => {
+    expect(
+      parseCountryPoliticians(
+        JSON.stringify({
+          politicians: [
+            {
+              id: "p1",
+              name: "Ada",
+              party: "12",
+              partyName: "Labour Party",
+              countryId: "US",
+              homeState: "CA",
+              homeStateName: "California",
+              currentOffice: "Senator",
+              officeType: "legislative",
+              politicalInfluence: 61,
+              nationalInfluence: 40,
+              favorability: 55,
+              funds: 1000,
+              isNPP: false,
+            },
+          ],
+          total: 1,
+          playerCount: 1,
+          nppCount: 0,
+        }),
+      ),
+    ).toEqual([
+      {
+        id: "p1",
+        name: "Ada",
+        party: "12",
+        partyName: "Labour Party",
+        homeState: "CA",
+        homeStateName: "California",
+        currentOffice: "Senator",
+        officeType: "legislative",
+        politicalInfluence: 61,
+        nationalInfluence: 40,
+        favorability: 55,
+        isNpp: false,
+      },
+    ]);
+  });
+
+  it("fails closed on a malformed politician list", () => {
+    expect(parseCountryPoliticians(JSON.stringify({ politicians: [{ id: "p1" }] }))).toBeNull();
+    expect(parseCountryPoliticians(JSON.stringify({ politicians: "nope" }))).toBeNull();
+    expect(parseCountryPoliticians("not json")).toBeNull();
   });
 });
 

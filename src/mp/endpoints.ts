@@ -66,6 +66,19 @@
  *   public, no auth; 400 on an invalid country. The nation's regions
  *   (AHDGame src/app/api/country/[code]/states/route.ts): 200
  *   {states:[{id,name}]}. Native projects the id and name only.
+ * - country-parties     GET /api/country/[code]/parties
+ *   public, no auth; 400 on an invalid country. The nation's political
+ *   parties (AHDGame src/app/api/country/[code]/parties/route.ts): 200
+ *   {parties:[{id,objectId,name,abbreviation,color,chair,viceChair,
+ *   treasurer,leadershipTitles,treasury,memberCount,playerCount,nppCount,
+ *   economicPosition,socialPosition,tier,...}]}. Native projects the
+ *   directory fields it renders and leaves the rest server-side.
+ * - country-politicians GET /api/country/[code]/politicians
+ *   public, no auth; 400 on an invalid country. The nation's politicians and
+ *   NPPs (AHDGame src/app/api/country/[code]/politicians/route.ts): 200
+ *   {politicians:[{id,name,party,partyName,countryId,homeState,
+ *   homeStateName,currentOffice,officeType,politicalInfluence,
+ *   nationalInfluence,favorability,funds,isNPP}],total,playerCount,nppCount}.
  * - turn-status       /api/game/turn/status    public; 404 uninitialized
  *   {singleplayer,currentTurn,currentYear,startingYear,preset,
  *   preIterationTurns,preIterationActive,isActive,isProcessing,
@@ -354,7 +367,9 @@ export type MpFetchOpId =
   | "governor-detail"
   | "countries"
   | "country-overview"
-  | "country-states";
+  | "country-states"
+  | "country-parties"
+  | "country-politicians";
 
 export type MpMutateOpId =
   | "execute-action"

@@ -669,6 +669,107 @@ export function parseCountryStates(bodyText: string): MpRegionView[] | null {
 }
 
 /**
+ * One political party of a nation, from
+ * GET /api/country/[code]/parties.
+ */
+export interface MpNationPartyView {
+  /** Sequential party id, as the server reports it. */
+  id: string;
+  /** Mongo id of the party record. */
+  objectId: string | null;
+  name: string;
+  abbreviation: string | null;
+  memberCount: number | null;
+  playerCount: number | null;
+  nppCount: number | null;
+  chairName: string | null;
+  economicPosition: string | null;
+  socialPosition: string | null;
+  tier: string | null;
+}
+
+/**
+ * country-parties: the nation's parties. A malformed entry invalidates the
+ * whole projection, the way the nation directory does.
+ */
+export function parseCountryParties(bodyText: string): MpNationPartyView[] | null {
+  const record = asRecord(parseJsonBody(bodyText));
+  if (!record || !Array.isArray(record.parties)) return null;
+  const parties: MpNationPartyView[] = [];
+  for (const entry of record.parties) {
+    const item = asRecord(entry);
+    const id = item ? asTrimmedString(item.id) : null;
+    const name = item ? asTrimmedString(item.name) : null;
+    if (!item || !id || !name) return null;
+    const chair = asRecord(item.chair);
+    parties.push({
+      id,
+      objectId: asTrimmedString(item.objectId ?? null),
+      name,
+      abbreviation: asTrimmedString(item.abbreviation ?? null),
+      memberCount: asNumber(item.memberCount),
+      playerCount: asNumber(item.playerCount),
+      nppCount: asNumber(item.nppCount),
+      chairName: chair ? asTrimmedString(chair.name ?? null) : null,
+      economicPosition: asTrimmedString(item.economicPosition ?? null),
+      socialPosition: asTrimmedString(item.socialPosition ?? null),
+      tier: asTrimmedString(item.tier ?? null),
+    });
+  }
+  return parties;
+}
+
+/**
+ * One politician of a nation, from
+ * GET /api/country/[code]/politicians.
+ */
+export interface MpNationPoliticianView {
+  id: string;
+  name: string;
+  party: string | null;
+  partyName: string | null;
+  homeState: string | null;
+  homeStateName: string | null;
+  currentOffice: string | null;
+  officeType: string | null;
+  politicalInfluence: number | null;
+  nationalInfluence: number | null;
+  favorability: number | null;
+  isNpp: boolean | null;
+}
+
+/**
+ * country-politicians: the nation's politicians and NPPs. A malformed entry
+ * invalidates the whole projection.
+ */
+export function parseCountryPoliticians(bodyText: string): MpNationPoliticianView[] | null {
+  const record = asRecord(parseJsonBody(bodyText));
+  if (!record || !Array.isArray(record.politicians)) return null;
+  const politicians: MpNationPoliticianView[] = [];
+  for (const entry of record.politicians) {
+    const item = asRecord(entry);
+    const id = item ? asTrimmedString(item.id) : null;
+    const name = item ? asTrimmedString(item.name) : null;
+    if (!item || !id || !name) return null;
+    politicians.push({
+      id,
+      name,
+      party: asTrimmedString(item.party ?? null),
+      partyName: asTrimmedString(item.partyName ?? null),
+      homeState: asTrimmedString(item.homeState ?? null),
+      homeStateName: asTrimmedString(item.homeStateName ?? null),
+      currentOffice: asTrimmedString(item.currentOffice ?? null),
+      officeType: asTrimmedString(item.officeType ?? null),
+      politicalInfluence: asNumber(item.politicalInfluence),
+      nationalInfluence: asNumber(item.nationalInfluence),
+      favorability: asNumber(item.favorability),
+      isNpp: asBoolean(item.isNPP),
+    });
+  }
+  return politicians;
+}
+
+/**
  * Election detail reference accepted by GET /api/elections?id= (AHDGame
  * resolveElection accepts a 24-hex ObjectId or a seatId like US-senate-PA-1;
  * see isSeatId in src/lib/elections/resolveElection.ts). Bounded so the id

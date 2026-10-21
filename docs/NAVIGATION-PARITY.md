@@ -802,6 +802,10 @@ Delivered:
   nation's regions, the way the singleplayer Regions destination lists
   them. A failed region read keeps the nation's figures and reports
   honestly.
+- The drill-in also reads `GET /api/country/[code]/parties` and
+  `GET /api/country/[code]/politicians`, so the nation's parties (with
+  member counts and chair) and its politicians (with office, party and
+  influence) are reachable from multiplayer as they are in singleplayer.
 - The Rust bridge pins the country code to a two-letter key and the
   transport allowlist accepts only the pinned path shape; the adapter
   refuses to send anything else.

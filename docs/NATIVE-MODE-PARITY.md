@@ -60,7 +60,7 @@ unqualified cash number.
 | Settings | Shared device preferences | Same component | Physical-device dynamic text and transparency |
 | Help | Bundled local guide and native-safe support links | Home support guide; no dedicated MP drawer Help destination | Unified contextual help |
 | Election/company/union/cabinet/governor detail | Existing local destination families and role gates | Existing capability-gated summary drill-ins from Standing | Full MP detail and action APIs |
-| State/Nation/World menus | Local projections, with documented gaps | Nations directory from the public world read, with each nation's headline figures and regions | World map, hall of fame, region drill-in and the remaining world destinations |
+| State/Nation/World menus | Local projections, with documented gaps | Nations directory from the public world read, with each nation's headline figures, regions, parties and politicians | World map, hall of fame, per-nation drill-ins beyond the directory and the remaining world destinations |
 
 The absence of an MP read or action is a porting gap, not permission to substitute
 SP data. Track full navigation under #510, imagery under #143, creation under

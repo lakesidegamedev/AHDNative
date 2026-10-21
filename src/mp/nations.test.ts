@@ -175,3 +175,76 @@ describe("MpModeSession loadCountryRegions", () => {
     expect(calls.filter((call) => call === "fetch:country-states")).toHaveLength(0);
   });
 });
+
+describe("MpModeSession loadCountryParties and loadCountryPoliticians", () => {
+  const parties = JSON.stringify({
+    parties: [
+      {
+        id: "12",
+        objectId: "68a000000000000000000001",
+        name: "Labour Party",
+        abbreviation: "LP",
+        chair: { id: "c1", name: "Ada" },
+        memberCount: 42,
+        playerCount: 30,
+        nppCount: 12,
+      },
+    ],
+  });
+  const politicians = JSON.stringify({
+    politicians: [
+      {
+        id: "p1",
+        name: "Ada",
+        partyName: "Labour Party",
+        currentOffice: "Senator",
+        politicalInfluence: 61,
+        favorability: 55,
+      },
+    ],
+    total: 1,
+    playerCount: 1,
+    nppCount: 0,
+  });
+
+  it("projects the nation parties and politicians", async () => {
+    const { host, calls } = scriptedHost(
+      enterScripts({ "country-parties": [parties], "country-politicians": [politicians] }),
+    );
+    const session = new MpModeSession(host);
+    await session.enter();
+    const withParties = await session.loadCountryParties("US");
+    expect(withParties.nationParties?.[0]).toMatchObject({
+      name: "Labour Party",
+      memberCount: 42,
+      chairName: "Ada",
+    });
+    const withPoliticians = await session.loadCountryPoliticians("US");
+    expect(withPoliticians.nationPoliticians?.[0]).toMatchObject({
+      name: "Ada",
+      currentOffice: "Senator",
+      politicalInfluence: 61,
+    });
+    expect(withPoliticians.phase).toBe("ready");
+    expect(withPoliticians.error).toBeNull();
+    expect(calls.filter((call) => call === "fetch:country-parties")).toHaveLength(1);
+    expect(calls.filter((call) => call === "fetch:country-politicians")).toHaveLength(1);
+  });
+
+  it("never sends an invalid country code and keeps the last good list", async () => {
+    const { host, calls } = scriptedHost(
+      enterScripts({ "country-parties": [parties, { reject: "remote-error:500:Server error" }] }),
+    );
+    const session = new MpModeSession(host);
+    await session.enter();
+    const rejected = await session.loadCountryParties("usa");
+    expect(rejected.nationParties).toBeNull();
+    expect(calls.filter((call) => call === "fetch:country-parties")).toHaveLength(0);
+
+    await session.loadCountryParties("US");
+    const failed = await session.loadCountryParties("US");
+    expect(failed.nationParties?.[0]?.name).toBe("Labour Party");
+    expect(failed.phase).toBe("ready");
+    expect(failed.error).toBeNull();
+  });
+});

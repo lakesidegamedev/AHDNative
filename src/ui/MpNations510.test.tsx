@@ -76,6 +76,36 @@ const overview = JSON.stringify({
   totalReferendums: 3,
   commandEconomy: false,
 });
+const countryParties = JSON.stringify({
+  parties: [
+    {
+      id: "12",
+      objectId: "68a000000000000000000001",
+      name: "Labour Party",
+      abbreviation: "LP",
+      chair: { id: "c1", name: "Ada" },
+      memberCount: 42,
+      playerCount: 30,
+      nppCount: 12,
+    },
+  ],
+});
+const countryPoliticians = JSON.stringify({
+  politicians: [
+    {
+      id: "p1",
+      name: "Ada",
+      partyName: "Labour Party",
+      homeStateName: "California",
+      currentOffice: "Senator",
+      politicalInfluence: 61,
+      favorability: 55,
+    },
+  ],
+  total: 1,
+  playerCount: 1,
+  nppCount: 0,
+});
 
 afterEach(() => {
   vi.useRealTimers();
@@ -138,6 +168,8 @@ describe("MpModeScreen Nations destination", () => {
         countries: [countries],
         "country-overview": [overview],
         "country-states": [JSON.stringify({ states: [{ id: "CA", name: "California" }, { id: "NY", name: "New York" }] })],
+        "country-parties": [countryParties],
+        "country-politicians": [countryPoliticians],
       }),
     );
     render(<MpModeScreen host={host} onExit={() => {}} />);
@@ -177,6 +209,15 @@ describe("MpModeScreen Nations destination", () => {
     expect(within(regions).getByText("California")).toBeInTheDocument();
     expect(within(regions).getByText("New York")).toBeInTheDocument();
     expect(calls).toContain("fetch:country-states");
+    // The nation's parties and politicians ride the same drill-in.
+    const partyList = screen.getByRole("list", { name: "Parties of United States" });
+    expect(within(partyList).getByText(/Labour Party/)).toBeInTheDocument();
+    expect(within(partyList).getByText(/42 members/)).toBeInTheDocument();
+    const politicianList = screen.getByRole("list", { name: "Politicians of United States" });
+    expect(within(politicianList).getByText(/Ada/)).toBeInTheDocument();
+    expect(within(politicianList).getByText(/Senator/)).toBeInTheDocument();
+    expect(calls).toContain("fetch:country-parties");
+    expect(calls).toContain("fetch:country-politicians");
   });
 
   it("reports an honest empty state when the server answers no directory", async () => {

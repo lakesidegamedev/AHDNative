@@ -78,6 +78,8 @@ const IDLE: MpSnapshot = {
   nations: null,
   nationOverview: null,
   nationRegions: null,
+  nationParties: null,
+  nationPoliticians: null,
   notice: null,
   error: null,
   retryAfter: null,
@@ -543,9 +545,15 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
     setNoticeScope("general");
     void run(async (s) => {
       const withOverview = await s.loadNationOverview(target);
-      // The nation's regions ride the same drill-in; a failed region read
-      // keeps the nation's figures and reports honestly.
-      return withOverview.nationOverview ? await s.loadCountryRegions(target) : withOverview;
+      if (!withOverview.nationOverview) return withOverview;
+      // The nation's regions, parties and politicians ride the same
+      // drill-in; a failed sibling read keeps the nation's figures.
+      const withRegions = await s.loadCountryRegions(target);
+      const withParties = await s.loadCountryParties(target);
+      return s.loadCountryPoliticians(target).then((withPoliticians) => ({
+        ...withPoliticians,
+        nationRegions: withParties.nationRegions ?? withRegions.nationRegions,
+      }));
     }).then((next) => {
       if (next?.nationOverview) {
         setNationSelected(target);
@@ -738,6 +746,8 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
     : null;
   const nationOverview = selectedNation ? snapshot.nationOverview : null;
   const nationRegions = selectedNation ? snapshot.nationRegions : null;
+  const nationParties = selectedNation ? snapshot.nationParties : null;
+  const nationPoliticians = selectedNation ? snapshot.nationPoliticians : null;
   const homeCountryId = snapshot.character?.countryId ?? snapshot.capabilities?.characterCountryId ?? null;
   const turnFounding = snapshot.turn?.preIterationActive === true;
   /* Footer resource parity: the SP footer reads campaign funds from the same
@@ -1251,6 +1261,35 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
               <ul className="ahd-mp-list" aria-label={"Regions of " + selectedNation.name}>
                 {nationRegions.map((region) => (
                   <li key={region.id}>{region.name}</li>
+                ))}
+              </ul>
+              </>
+            )}
+            {nationParties && nationParties.length > 0 && (
+              <>
+              <h3 className="ahd-h3">Parties</h3>
+              <ul className="ahd-mp-list" aria-label={"Parties of " + selectedNation.name}>
+                {nationParties.map((party) => (
+                  <li key={party.id}>
+                    {party.name}
+                    {party.memberCount !== null ? " · " + party.memberCount + " members" : ""}
+                    {party.chairName ? " · chaired by " + party.chairName : ""}
+                  </li>
+                ))}
+              </ul>
+              </>
+            )}
+            {nationPoliticians && nationPoliticians.length > 0 && (
+              <>
+              <h3 className="ahd-h3">Politicians</h3>
+              <ul className="ahd-mp-list" aria-label={"Politicians of " + selectedNation.name}>
+                {nationPoliticians.map((politician) => (
+                  <li key={politician.id}>
+                    {politician.name}
+                    {politician.currentOffice ? " · " + politician.currentOffice : ""}
+                    {politician.partyName ? " · " + politician.partyName : ""}
+                    {politician.politicalInfluence !== null ? " · INF " + politician.politicalInfluence : ""}
+                  </li>
                 ))}
               </ul>
               </>

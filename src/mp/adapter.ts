@@ -6,6 +6,8 @@ import {
   parseClientStatus,
   parseCountries,
   parseCountryOverview,
+  parseCountryParties,
+  parseCountryPoliticians,
   parseCountryStates,
   parseCorporationDetail,
   parseElectionDetail,
@@ -47,6 +49,8 @@ import {
   type MpNationView,
   type MpNationOverviewView,
   type MpRegionView,
+  type MpNationPartyView,
+  type MpNationPoliticianView,
   type MpUnionDetailView,
 } from "./validators";
 import type { MpMutateOpId } from "./endpoints";
@@ -126,6 +130,15 @@ export interface MpSnapshot {
    * on demand with the nation's figures.
    */
   nationRegions: MpRegionView[] | null;
+  /**
+   * The selected nation's parties, from /api/country/[code]/parties.
+   */
+  nationParties: MpNationPartyView[] | null;
+  /**
+   * The selected nation's politicians, from
+   * /api/country/[code]/politicians.
+   */
+  nationPoliticians: MpNationPoliticianView[] | null;
   /** Last server-confirmed notice (action result); cleared on next load. */
   notice: string | null;
   /** Last human-readable failure; cleared when a call succeeds. */
@@ -155,6 +168,8 @@ const INITIAL_SNAPSHOT: MpSnapshot = {
   nations: null,
   nationOverview: null,
   nationRegions: null,
+  nationParties: null,
+  nationPoliticians: null,
   notice: null,
   error: null,
   retryAfter: null,
@@ -171,9 +186,9 @@ export const MP_MAIL_LIMIT = 50;
 
 function emptyAuthed(): Pick<
   MpSnapshot,
-  "character" | "savings" | "turn" | "capabilities" | "electionDetail" | "corporationDetail" | "unionDetail" | "cabinetDetail" | "governorDetail" | "inbox" | "mailInbox" | "mailSent" | "presence" | "status" | "nations" | "nationOverview" | "nationRegions"
+  "character" | "savings" | "turn" | "capabilities" | "electionDetail" | "corporationDetail" | "unionDetail" | "cabinetDetail" | "governorDetail" | "inbox" | "mailInbox" | "mailSent" | "presence" | "status" | "nations" | "nationOverview" | "nationRegions" | "nationParties" | "nationPoliticians"
 > {
-  return { character: null, savings: null, turn: null, capabilities: null, electionDetail: null, corporationDetail: null, unionDetail: null, cabinetDetail: null, governorDetail: null, inbox: null, mailInbox: null, mailSent: null, presence: null, status: null, nations: null, nationOverview: null, nationRegions: null };
+  return { character: null, savings: null, turn: null, capabilities: null, electionDetail: null, corporationDetail: null, unionDetail: null, cabinetDetail: null, governorDetail: null, inbox: null, mailInbox: null, mailSent: null, presence: null, status: null, nations: null, nationOverview: null, nationRegions: null, nationParties: null, nationPoliticians: null };
 }
 
 export class MpModeSession {
@@ -601,6 +616,68 @@ export class MpModeSession {
       const nationRegions = parseCountryStates(result.bodyText);
       if (!nationRegions) return this.get();
       return this.set({ nationRegions });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
+   * Read the political parties of one nation (#510 world destinations). GET
+   * /api/country/[code]/parties is public; the code is checked here and
+   * again by the Rust bridge. A failed read keeps the previous list and
+   * never fails the session. Never throws.
+   */
+  async loadCountryParties(code: unknown): Promise<MpSnapshot> {
+    if (!isCountryCode(code)) return this.get();
+    try {
+      const result = await mpFetch(
+        this.host,
+        "country-parties",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        code,
+      );
+      if (result.kind !== "ok") return this.get();
+      const nationParties = parseCountryParties(result.bodyText);
+      if (!nationParties) return this.get();
+      return this.set({ nationParties });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
+   * Read the politicians of one nation (#510 world destinations). GET
+   * /api/country/[code]/politicians is public; the code is checked here and
+   * again by the Rust bridge. A failed read keeps the previous list and
+   * never fails the session. Never throws.
+   */
+  async loadCountryPoliticians(code: unknown): Promise<MpSnapshot> {
+    if (!isCountryCode(code)) return this.get();
+    try {
+      const result = await mpFetch(
+        this.host,
+        "country-politicians",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        code,
+      );
+      if (result.kind !== "ok") return this.get();
+      const nationPoliticians = parseCountryPoliticians(result.bodyText);
+      if (!nationPoliticians) return this.get();
+      return this.set({ nationPoliticians });
     } catch {
       return this.get();
     }
