@@ -2235,7 +2235,6 @@ pub async fn mp_session_fetch(
                 || detail.cabinet_position_id.is_some()
                 || detail.governor_country_code.is_some()
                 || detail.governor_state_id.is_some()
-                || detail.country_code.is_some()
                 || detail.search_query.is_some()
             {
                 return Err(error::UNSUPPORTED_OP.to_string());
@@ -2302,6 +2301,8 @@ pub async fn mp_session_fetch(
             fetch_election_list_path(country)?
         }
         _ => {
+            // Every detail slot must be absent on the ops that do not read
+            // it, including the country and search slots.
             if detail.election_id.is_some()
                 || detail.corporation_id.is_some()
                 || detail.union_id.is_some()
@@ -2310,6 +2311,7 @@ pub async fn mp_session_fetch(
                 || detail.governor_country_code.is_some()
                 || detail.governor_state_id.is_some()
                 || detail.country_code.is_some()
+                || detail.search_query.is_some()
             {
                 return Err(error::BAD_ARG.to_string());
             }
@@ -2430,6 +2432,105 @@ mod tests {
             "/api/client-status?layout=full"
         ));
         assert!(fetch_path_and_query(MpFetchOp::ClientStatusFull, Some(5), None).is_err());
+    }
+
+    /// The body of one command arm, whitespace-insensitive: from its marker
+    /// to the next arm, with the formatting rustfmt applied removed so the
+    /// checks read the same whatever the line breaks are.
+    fn command_arm(source: &str, op: &str) -> String {
+        // The command's own match, not the path builders: both mention the
+        // same variants.
+        let command = source
+            .find("pub async fn mp_session_fetch")
+            .expect("the fetch command must exist");
+        let marker = format!("MpFetchOp::{op} => {{");
+        let start = source[command..]
+            .find(&marker)
+            .unwrap_or_else(|| panic!("arm for {op} must exist"))
+            + command;
+        let rest = &source[start + marker.len()..];
+        // The arm ends at the next arm, at the default arm, or at the end of
+        // the match, whichever comes first.
+        let end = [
+            rest.find("        MpFetchOp::"),
+            rest.find("        _ => {"),
+            rest.find("        };"),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
+        .unwrap_or(rest.len());
+        rest[..end].chars().filter(|c| !c.is_whitespace()).collect()
+    }
+
+    #[test]
+    fn country_scoped_reads_accept_the_country_code_they_read() {
+        // A country-scoped read takes the country code as its detail slot.
+        // If the same arm also rejected that slot, the read could never run:
+        // the guard would refuse the argument the arm requires. The command
+        // arms are not unit-testable without a Tauri app handle, so the
+        // invariant is checked against the source.
+        let source = include_str!("mp_session.rs");
+        for op in [
+            "CountryOverview",
+            "CountryStates",
+            "CountryParties",
+            "CountryPoliticians",
+            "CountryLeaders",
+            "ElectionList",
+        ] {
+            let arm = command_arm(source, op);
+            assert!(
+                arm.contains("detail.country_code.as_deref()"),
+                "{op} must read the country code"
+            );
+            assert!(
+                !arm.contains("detail.country_code.is_some()"),
+                "{op} must not reject the country code it reads"
+            );
+        }
+    }
+
+    #[test]
+    fn reads_without_a_country_code_reject_a_stray_one() {
+        let source = include_str!("mp_session.rs");
+        for op in [
+            "ElectionDetail",
+            "CorporationDetail",
+            "UnionDetail",
+            "CabinetDetail",
+            "GovernorDetail",
+            "NewsFeed",
+            "CharacterSearch",
+        ] {
+            let arm = command_arm(source, op);
+            assert!(
+                arm.contains("detail.country_code.is_some()"),
+                "{op} must reject a country code it does not read"
+            );
+        }
+        // The wide status read has its own arm; the minimal one falls
+        // through to the default arm, which rejects every detail slot.
+        let status_arm = command_arm(source, "ClientStatusFull");
+        assert!(
+            status_arm.contains("detail.country_code.is_some()"),
+            "the wide status read must reject a country code it does not read"
+        );
+        let command = source
+            .split("pub async fn mp_session_fetch")
+            .nth(1)
+            .expect("the fetch command must exist");
+        let default_arm = command
+            .split("        _ => {")
+            .nth(1)
+            .expect("the default arm must exist")
+            .split("        };")
+            .next()
+            .expect("the default arm must end");
+        assert!(
+            default_arm.contains("detail.country_code.is_some()"),
+            "the default arm must reject a country code"
+        );
     }
 
     #[test]

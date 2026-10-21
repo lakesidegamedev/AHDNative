@@ -1029,3 +1029,23 @@ Focused evidence: `src/ui/MpPreviewParity510.test.tsx` (2 rendered tests:
 the preview lists the latest notifications and links into the inbox, the
 nation directory filters by name). No physical-iPhone evidence is claimed;
 #363/#436 remain open.
+
+## 32. Bridge detail-slot guards (#510)
+
+A self-review of the merged bridge found a real defect the automated suites
+could not see: the nation-leadership arm rejected the country code it reads,
+so that read could never run on a device, and the default arm accepted a
+stray country or search slot on the ops that ignore them.
+
+Delivered:
+
+- The country-scoped arms read the country code they need, and every other
+  op rejects a country or search slot it does not read.
+- Two Rust tests now pin the invariant against the source, because the
+  command arms need a Tauri app handle to run:
+  `country_scoped_reads_accept_the_country_code_they_read` and
+  `reads_without_a_country_code_reject_a_stray_one`.
+
+Focused evidence: `cargo test --manifest-path src-tauri/Cargo.toml --lib`
+(93 tests) with `cargo fmt --check` and
+`cargo clippy --all-targets -- -D warnings` clean.
