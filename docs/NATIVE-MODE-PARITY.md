@@ -58,7 +58,7 @@ unqualified cash number.
 | Notifications | Preview and local inbox | Server inbox and existing read/snooze/archive/preferences | MP preview and meaningful notification deep links |
 | Player mail | Not applicable to offline players | Inbox, sent, reader, reply and compose | Recipient discovery, full reference social flow |
 | Settings | Shared device preferences | Same component | Physical-device dynamic text and transparency |
-| Help | Bundled local guide and native-safe support links | Home support guide; no dedicated MP drawer Help destination | Unified contextual help |
+| Help | Bundled local guide and native-safe support links | Drawer help group with the allowlisted guide, wiki, about and community destinations | A unified in-app contextual help surface for both modes |
 | Election/company/union/cabinet/governor detail | Existing local destination families and role gates | Existing capability-gated summary drill-ins from Standing | Full MP detail and action APIs |
 | State/Nation/World menus | Local projections, with documented gaps | Nations directory from the public world read, with each nation's headline figures, regions, parties and politicians; the nation's races from the public election list; the world news feed | World map, hall of fame, per-nation drill-ins beyond the directory and the remaining world destinations |
 

@@ -15,6 +15,7 @@ import { ProfileIdentity } from "./ProfileIdentity";
 import { MpWalletPanel } from "./MpWalletPanel";
 import { SettingsPanel, type SettingsPanelProps } from "./SettingsPanel";
 import { installFooterClearance } from "./footerClearance";
+import { openSupportDestination, type SupportDestination } from "../online/support";
 import "./ui.css";
 
 /* Native multiplayer mode screen (#359). Renders authoritative server state
@@ -223,6 +224,10 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
    * matching destination. Native mirrors that shape with the figures the
    * server actually reports. */
   const [openResource, setOpenResource] = useState<string | null>(null);
+  /* Support links (#510): the reference mobile menu carries the same
+   * guide/about/community cluster in its drawer, and Native already
+   * allowlists those destinations. */
+  const [supportError, setSupportError] = useState<string | null>(null);
   /* Cash delta (#510): the reference chip shows the change since the last
    * action. Native can honestly report the change since the last status
    * read, which is the same server figure a moment later. */
@@ -500,6 +505,17 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
       setSnapshot(next);
     });
   }, [activeSection, snapshot.nations]);
+
+  /* Open one allowlisted support destination. A refused open reports
+   * honestly instead of leaving a dead button behind. */
+  async function openSupport(destination: SupportDestination) {
+    try {
+      await openSupportDestination(destination);
+      setSupportError(null);
+    } catch {
+      setSupportError("That destination could not open. Check your connection and try again.");
+    }
+  }
 
   function runGeneral(operation: (session: MpModeSession) => Promise<MpSnapshot>) {
     setNoticeScope("general");
@@ -1938,6 +1954,23 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
             <button className="ahd-drawer-item" aria-current={activeSection === "mp-news" ? "page" : undefined} data-active={activeSection === "mp-news" ? "true" : undefined} onClick={() => navigateFromMenu("mp-news")}>
               News
             </button>
+          </nav>
+
+          {/* Support links (#510): the reference mobile menu keeps the
+              guide, about and community cluster in the drawer. These are the
+              same allowlisted destinations the offline Help panel opens. */}
+          <nav className="ahd-drawer-nav" aria-label="Multiplayer support">
+            <span className="ahd-label">Help</span>
+            {(["guides", "wiki", "about", "discord"] as SupportDestination[]).map((destination) => (
+              <button
+                key={destination}
+                className="ahd-drawer-item"
+                onClick={() => { void openSupport(destination); }}
+              >
+                {destination === "guides" ? "Game guides" : destination === "wiki" ? "Wiki" : destination === "about" ? "About" : "Discord"}
+              </button>
+            ))}
+            {supportError ? <p role="alert" className="ahd-alert" style={{ margin: 0 }}>{supportError}</p> : null}
           </nav>
 
           <div className="ahd-drawer-controls">

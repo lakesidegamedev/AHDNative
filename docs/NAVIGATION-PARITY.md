@@ -920,3 +920,21 @@ the reported figures and the destination link, the cash change since the
 last read) and `src/ui/MpModeScreenNav.test.tsx` (the chip now opens the
 details and the details link reaches the destination). No physical-iPhone
 evidence is claimed; #363/#436 remain open.
+
+## 27. MP support links (#510)
+
+The reference mobile menu keeps the guide, about and community cluster in
+its drawer. Multiplayer had no help destination at all, even though Native
+already allowlists exactly those destinations for the offline Help panel.
+
+Delivered:
+
+- The MP drawer gained a Help group with the allowlisted Game guides, Wiki,
+  About and Discord destinations, opened through the same
+  `openSupportDestination` path the offline Help panel uses, so no new URL
+  reaches the native opener.
+- A refused open reports honestly instead of leaving a dead button behind.
+
+Focused evidence: `src/ui/MpSupportLinks510.test.tsx` (2 rendered tests: the
+links open the allowlisted destination, a refused open reports honestly). No
+physical-iPhone evidence is claimed; #363/#436 remain open.
