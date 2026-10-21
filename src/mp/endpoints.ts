@@ -44,6 +44,24 @@
  *   breakdown, corporation nav, election stats and turn briefing stay
  *   server-side, and the reference polls this read every 60s, on a new turn
  *   and on foreground return.
+ * - countries          GET /api/countries          public, no auth, no query.
+ *   The runtime nation directory (AHDGame src/app/api/countries/route.ts):
+ *   200 {countries:[{id,name,status,enabledForPlayers,economyPreview,
+ *   econOnly,flagEmoji,regionLabel,regionLabelPlural,executiveTitle,
+ *   governmentType,governmentTypeLabel,exchangeName,legislature:{name,path,
+ *   lowerName,upperName},entryPath,overviewPath,mapPath,executivePath,
+ *   executiveLabel,centralBank:{name,abbreviation}}]}. Cache: public,
+ *   s-maxage=60. This is the source the reference mobile menu's nation
+ *   switcher renders (ExperimentalMobileMenu.tsx), so Native uses it for
+ *   the same destination.
+ * - country-overview   GET /api/country/[code]/overview-counts
+ *   public, no auth; 400 on an invalid country. The national headline
+ *   figures (AHDGame src/app/api/country/[code]/overview-counts/route.ts):
+ *   200 {parties,politicians,activeElections,upcomingElections,bills,
+ *   regions,primeRate,commandEconomy?,gdpMillions?,budgetBalancePctGdp?,
+ *   unions?,activeReferendums?,totalReferendums?,coldWarDefcon?,
+ *   navairFormations?}. Every figure degrades to null independently on the
+ *   server; Native projects only the figures it renders.
  * - turn-status       /api/game/turn/status    public; 404 uninitialized
  *   {singleplayer,currentTurn,currentYear,startingYear,preset,
  *   preIterationTurns,preIterationActive,isActive,isProcessing,
@@ -329,7 +347,9 @@ export type MpFetchOpId =
   | "corporation-detail"
   | "union-detail"
   | "cabinet-detail"
-  | "governor-detail";
+  | "governor-detail"
+  | "countries"
+  | "country-overview";
 
 export type MpMutateOpId =
   | "execute-action"

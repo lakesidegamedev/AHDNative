@@ -774,3 +774,41 @@ Focused evidence: `src/mp/status.test.ts`, `src/ui/MpStatusFooter510.test.tsx`
 the last good figures, background skip) and the Rust test
 `mp_session::tests::client_status_read_pins_the_minimal_layout`. No
 physical-iPhone evidence is claimed; #363/#436 remain open.
+
+## 22. MP Nations destination (#510)
+
+Singleplayer can browse the world's nations; multiplayer had no world
+destination at all, so the MP drawer offered nothing between the character
+surfaces and the device settings. The reference mobile menu renders the
+runtime nation list as its nation switcher
+(`AHDGame src/components/navbar/ExperimentalMobileMenu.tsx`), from
+`GET /api/countries`.
+
+Delivered:
+
+- The MP drawer gained a World group with a Nations destination, reachable
+  even before a character exists because it is a world read.
+- `GET /api/countries` projects the runtime directory: name, flag, status,
+  government type, region label, legislature and chamber names, central bank
+  and exchange. A malformed entry invalidates the whole projection rather
+  than half-inventing a directory.
+- The player's own nation is marked, the way the reference marks home.
+- Selecting a nation reads `GET /api/country/[code]/overview-counts` and
+  shows the server's own figures: parties, politicians, active and upcoming
+  elections, bills, regions, GDP, budget balance, unions and prime rate.
+  Every figure is the server's; anything the server did not report reads
+  "Not reported".
+- The Rust bridge pins the country code to a two-letter key and the
+  transport allowlist accepts only the pinned path shape; the adapter
+  refuses to send anything else.
+
+Focused evidence: `src/mp/nations.test.ts` (directory and nation figures,
+failure keeps the last good view, an invalid country code never leaves the
+client), `src/ui/MpNations510.test.tsx` (rendered directory, home marker,
+nation card with the server's figures, honest empty state when the read
+fails) and the Rust test
+`mp_session::tests::world_reads_resolve_to_pinned_paths`. No
+physical-iPhone evidence is claimed; #363/#436 remain open.
+
+Still open under #510: the region drill-in, the world map, the hall of fame,
+and the remaining world destinations.

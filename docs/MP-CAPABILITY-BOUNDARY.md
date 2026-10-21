@@ -96,6 +96,14 @@ dead MP controls offline and no synthesized server state anywhere:
   good figures without touching phase or error state, and the screen
   refreshes it on the reference cadence (60s while visible, plus a new turn
   and foreground return).
+- World reads are public and separate from the character projection:
+  `GET /api/countries` answers the runtime nation directory, and
+  `GET /api/country/[code]/overview-counts` answers one nation's headline
+  figures (parties, politicians, elections, bills, regions, GDP, budget
+  balance, unions, prime rate). The Rust bridge pins the country code to a
+  two-letter key, and the adapter refuses to send anything else. Both
+  loads sit outside enter/refresh: a failure keeps the last good view and
+  never expires the session.
 - Reconnect and session restore: mount chains enter, then on-demand mail,
   then presence; manual Refresh re-reads authoritative state and refreshes
   presence; foreground return re-probes while waiting for a session (#149).
@@ -135,6 +143,11 @@ behind it (detail panels open only after the summary load succeeds).
 - Status read and footer resources: `src/mp/status.test.ts`,
   `src/ui/MpStatusFooter510.test.tsx`, and the Rust allowlist test
   `mp_session::tests::client_status_read_pins_the_minimal_layout`.
+- World reads: `src/mp/nations.test.ts` (nation directory and nation
+  figures, including the refusal to send an invalid country code),
+  `src/ui/MpNations510.test.tsx` (rendered directory, home marker, nation
+  card, honest empty state) and the Rust path/allowlist test
+  `mp_session::tests::world_reads_resolve_to_pinned_paths`.
 - Endpoint contracts: `src/mp/endpoints.test.ts` (pinned to AHDGame
   `e35f75e3fe230e7ab4439a4f63b7269829a64f9d`).
 - Reconnect, auth expiry, cold boot, foreground restore, mode transition,

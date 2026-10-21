@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { BottomNav, GameDrawerFrame } from "./MobileNavigation";
 import { MpModeSession, type MpSnapshot } from "../mp/adapter";
 import { tauriMpBridgeHost, type MpBridgeHost } from "../mp/bridge";
-import { isCabinetCountryCode, isCabinetPositionId, isCorporationId, isElectionId, isGovernorCountryCode, isGovernorStateId, isUnionId } from "../mp/validators";
+import { isCabinetCountryCode, isCabinetPositionId, isCorporationId, isElectionId, isGovernorCountryCode, isGovernorStateId, isUnionId, type MpNationView } from "../mp/validators";
 import { MP_EXECUTE_ACTIONS, MP_NOTIFICATION_TYPES, MP_SNOOZE_MINUTES_DEFAULT } from "../mp/endpoints";
 import { formatTurnCountdown } from "../mp/validators";
 import { turnPollDelay } from "../mp/turnPoll";
@@ -75,6 +75,8 @@ const IDLE: MpSnapshot = {
   mailSent: null,
   presence: null,
   status: null,
+  nations: null,
+  nationOverview: null,
   notice: null,
   error: null,
   retryAfter: null,
@@ -98,6 +100,14 @@ const MP_ACTION_CATEGORIES: Record<string, ActionsCategoryFilter> = {
   campaign: "influence", advertise: "influence",
   poll: "intelligence", pollLarge: "intelligence", debatePrep: "intelligence",
 };
+
+/**
+ * Nation label with its flag, the way the reference nation switcher renders
+ * a country row (flag first, then the runtime name).
+ */
+function nationTitle(nation: MpNationView): string {
+  return nation.flagEmoji ? nation.flagEmoji + " " + nation.name : nation.name;
+}
 
 export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onPreferencesChange, preferencesError }: MpModeScreenProps) {
   const sessionRef = useRef<MpModeSession | null>(null);
@@ -144,6 +154,13 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
   /* Governor roster drill-in (#359 governor slice): same contract as the
    * election, corporation, union, and cabinet panels, one office at a time. */
   const [governorOpen, setGovernorOpen] = useState(false);
+  /* Nation directory (#510 world destinations): the runtime nation list and
+   * the selected nation's headline figures. */
+  const [nationSelected, setNationSelected] = useState<string | null>(null);
+  /* Nation directory read state: the directory loads on demand when the
+   * destination opens, and a failed read reports honestly instead of
+   * spinning forever. */
+  const [nationsLoading, setNationsLoading] = useState(false);
 
   useEffect(() => {
     const session = sessionRef.current!;
@@ -358,6 +375,22 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
     // cannot stack pollers.
   }, [snapshot.phase]);
 
+  /* Nation directory (#510 world destinations). The directory read is
+   * public, so it loads when the destination opens and never blocks the
+   * session; a failed read keeps the last good directory and reports
+   * honestly. */
+  useEffect(() => {
+    if (activeSection !== "mp-nations") return;
+    const session = sessionRef.current!;
+    const current = session.get();
+    if (current.phase !== "ready" || current.nations) return;
+    setNationsLoading(true);
+    void session.loadNations().then((next) => {
+      setNationsLoading(false);
+      setSnapshot(next);
+    });
+  }, [activeSection, snapshot.nations]);
+
   function runGeneral(operation: (session: MpModeSession) => Promise<MpSnapshot>) {
     setNoticeScope("general");
     void run(operation);
@@ -499,6 +532,18 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
         closeDetailPanels();
         setUnionOpen(true);
         window.setTimeout(() => jumpTo("mp-union"), 0);
+      }
+    });
+  }
+
+  /* The nation panel opens only once the authoritative figures are loaded;
+   * failures stay on the shared error display with the directory intact. */
+  function openNation(target: string) {
+    setNoticeScope("general");
+    void run((s) => s.loadNationOverview(target)).then((next) => {
+      if (next?.nationOverview) {
+        setNationSelected(target);
+        window.setTimeout(() => jumpTo("mp-nations"), 0);
       }
     });
   }
@@ -681,6 +726,12 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
         preIterationTurns: snapshot.turn.preIterationTurns,
       })
     : null;
+  const nationList = snapshot.nations ?? [];
+  const selectedNation = nationSelected
+    ? nationList.find((nation) => nation.id === nationSelected) ?? null
+    : null;
+  const nationOverview = selectedNation ? snapshot.nationOverview : null;
+  const homeCountryId = snapshot.character?.countryId ?? snapshot.capabilities?.characterCountryId ?? null;
   const turnFounding = snapshot.turn?.preIterationActive === true;
   /* Footer resource parity: the SP footer reads campaign funds from the same
    * authoritative source (client-nav `funds`); MP can therefore show the same
@@ -740,7 +791,7 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
         <header className="ahd-mp-row ahd-mp-heading" aria-label="Multiplayer header">
           <div style={{ minWidth: 0 }}>
             <p className="ahd-eyebrow">Multiplayer</p>
-            {activeSection !== "mp-profile" && activeSection !== "mp-settings" && activeSection !== "mp-actions" && activeSection !== "mp-ask" && <h1 className="ahd-h1" id="mp-top" tabIndex={-1}>{({ "mp-profile": "Profile", "mp-actions": "Actions", "mp-wallet": "Wallet", "mp-inbox": "Notifications", "mp-mail": "Mail", "mp-settings": "Settings" } as Record<string, string>)[activeSection] ?? "Details"}</h1>}
+            {activeSection !== "mp-profile" && activeSection !== "mp-settings" && activeSection !== "mp-actions" && activeSection !== "mp-ask" && <h1 className="ahd-h1" id="mp-top" tabIndex={-1}>{({ "mp-profile": "Profile", "mp-actions": "Actions", "mp-wallet": "Wallet", "mp-inbox": "Notifications", "mp-mail": "Mail", "mp-settings": "Settings", "mp-nations": "Nations" } as Record<string, string>)[activeSection] ?? "Details"}</h1>}
             {snapshot.username && <p className="ahd-muted" style={{ margin: 0 }}>Playing as {snapshot.username}</p>}
           </div>
         </header>
@@ -1155,6 +1206,70 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
           </div>
           </>
         )}
+
+        {/* Nations (#510 world destinations): the runtime nation directory
+          * from the public /api/countries read, with the selected nation's
+          * headline figures from /api/country/[code]/overview-counts. The
+          * directory is the same one the reference mobile menu's nation
+          * switcher renders. Every figure is the server's own; nothing is
+          * inferred for a nation the server did not report. */}
+        <section id="mp-nations" className="ahd-card ahd-card-pad" aria-label="Nations" tabIndex={-1} hidden={activeSection !== "mp-nations"}>
+          {nationSelected && selectedNation ? (
+            <>
+            <article className="ahd-stack" aria-label={"Nation: " + selectedNation.name}>
+            <h2 className="ahd-h2">{nationTitle(selectedNation)}</h2>
+            <dl className="ahd-mp-facts">
+              <dt>Government</dt><dd>{selectedNation.governmentTypeLabel ?? "Not reported"}</dd>
+              <dt>Regions</dt><dd>{selectedNation.regionLabel ?? "Not reported"}</dd>
+              <dt>Legislature</dt><dd>{selectedNation.legislatureName ?? "Not reported"}</dd>
+              {selectedNation.lowerChamberName && (<><dt>Lower chamber</dt><dd>{selectedNation.lowerChamberName}</dd></>)}
+              {selectedNation.upperChamberName && (<><dt>Upper chamber</dt><dd>{selectedNation.upperChamberName}</dd></>)}
+              <dt>Central bank</dt><dd>{selectedNation.centralBankName ?? "Not reported"}</dd>
+              {selectedNation.executiveTitle && (<><dt>Executive</dt><dd>{selectedNation.executiveTitle}</dd></>)}
+              {nationOverview && (<>
+                <dt>GDP</dt><dd>{nationOverview.gdpMillions !== null ? "$" + nationOverview.gdpMillions.toLocaleString("en-US") + "M" : "Not reported"}</dd>
+                <dt>Budget balance</dt><dd>{nationOverview.budgetBalancePctGdp !== null ? nationOverview.budgetBalancePctGdp.toFixed(1) + "% of GDP" : "Not reported"}</dd>
+                <dt>Parties</dt><dd>{nationOverview.parties ?? "Not reported"}</dd>
+                <dt>Politicians</dt><dd>{nationOverview.politicians ?? "Not reported"}</dd>
+                <dt>Elections</dt><dd>{(nationOverview.activeElections ?? "Not reported") + " active · " + (nationOverview.upcomingElections ?? "Not reported") + " upcoming"}</dd>
+                <dt>Bills</dt><dd>{nationOverview.bills ?? "Not reported"}</dd>
+                <dt>Regions</dt><dd>{nationOverview.regions ?? "Not reported"}</dd>
+                {nationOverview.unions !== null && (<><dt>Unions</dt><dd>{nationOverview.unions}</dd></>)}
+                {nationOverview.primeRate !== null && (<><dt>Prime rate</dt><dd>{nationOverview.primeRate + "%"}</dd></>)}
+              </>)}
+            </dl>
+            </article>
+            </>
+          ) : (
+            <>
+            <h2 className="ahd-h2">Nations</h2>
+            {nationList.length > 0 ? (
+              <ul className="ahd-mp-list" aria-label="Registered nations">
+                {nationList.map((nation) => (
+                  <li key={nation.id}>
+                    <button type="button" className="ahd-profile-link" onClick={() => openNation(nation.id)}>
+                      {nationTitle(nation)}{nation.id === homeCountryId ? " · Home" : ""}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="ahd-muted">{nationsLoading ? "Loading the nation directory…" : "The server did not answer with a nation directory."}</p>
+            )}
+            </>
+          )}
+        </section>
+        <div hidden={activeSection !== "mp-nations"} className="ahd-mp-row ahd-mp-back">
+          <button
+            className="ahd-btn ahd-btn-sm ahd-btn-ghost"
+            onClick={() => {
+              setNationSelected(null);
+              jumpTo("mp-top");
+            }}
+          >
+            {nationSelected ? "Back to nations" : "Back to Standing"}
+          </button>
+        </div>
 
         {snapshot.character && (
           <>
@@ -1584,6 +1699,16 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
             </button>
           </nav>
         )}
+
+          {/* World destinations (#510): the nation directory is a world
+              read, not a character surface, so it stays reachable even
+              before a character exists. */}
+          <nav className="ahd-drawer-nav" aria-label="Multiplayer world">
+            <span className="ahd-label">World</span>
+            <button className="ahd-drawer-item" aria-current={activeSection === "mp-nations" ? "page" : undefined} data-active={activeSection === "mp-nations" ? "true" : undefined} onClick={() => navigateFromMenu("mp-nations")}>
+              Nations
+            </button>
+          </nav>
 
           <div className="ahd-drawer-controls">
             <button className="ahd-btn ahd-btn-sm" disabled={busy} onClick={() => { setMenuOpen(false); void runGeneral((s) => withPresenceRefresh(s, s.refresh())); }}>

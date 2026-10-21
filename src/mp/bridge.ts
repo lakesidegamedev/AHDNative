@@ -87,14 +87,14 @@ export function parseBridgeBody(bodyText: string): MpCallResult {
 
 /** Seams the adapter needs from the shell. Fakes implement this in tests. */
 export interface MpBridgeHost {
-  fetch: (op: MpFetchOpId, limit?: number, offset?: number, electionId?: string, corporationId?: string, unionId?: string, cabinetCountryCode?: string, cabinetPositionId?: string, governorCountryCode?: string, governorStateId?: string) => Promise<string>;
+  fetch: (op: MpFetchOpId, limit?: number, offset?: number, electionId?: string, corporationId?: string, unionId?: string, cabinetCountryCode?: string, cabinetPositionId?: string, governorCountryCode?: string, governorStateId?: string, countryCode?: string) => Promise<string>;
   mutate: (op: MpMutateOpId, payload: Record<string, unknown>) => Promise<string>;
   beginSignIn: (provider: "discord" | "google") => Promise<void>;
 }
 
 export function tauriMpBridgeHost(): MpBridgeHost {
   return {
-    fetch: async (op, limit, offset, electionId, corporationId, unionId, cabinetCountryCode, cabinetPositionId, governorCountryCode, governorStateId) => {
+    fetch: async (op, limit, offset, electionId, corporationId, unionId, cabinetCountryCode, cabinetPositionId, governorCountryCode, governorStateId, countryCode) => {
       const { invoke } = await import("@tauri-apps/api/core");
       return (await invoke("mp_session_fetch", {
         opId: op,
@@ -108,6 +108,7 @@ export function tauriMpBridgeHost(): MpBridgeHost {
           cabinetPositionId: cabinetPositionId ?? null,
           governorCountryCode: governorCountryCode ?? null,
           governorStateId: governorStateId ?? null,
+          countryCode: countryCode ?? null,
         },
       })) as string;
     },
@@ -134,9 +135,10 @@ export async function mpFetch(
   cabinetPositionId?: string,
   governorCountryCode?: string,
   governorStateId?: string,
+  countryCode?: string,
 ): Promise<MpCallResult> {
   try {
-    return parseBridgeBody(await host.fetch(op, limit, offset, electionId, corporationId, unionId, cabinetCountryCode, cabinetPositionId, governorCountryCode, governorStateId));
+    return parseBridgeBody(await host.fetch(op, limit, offset, electionId, corporationId, unionId, cabinetCountryCode, cabinetPositionId, governorCountryCode, governorStateId, countryCode));
   } catch (reason) {
     return classifyBridgeError(reason);
   }

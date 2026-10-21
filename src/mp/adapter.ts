@@ -4,6 +4,8 @@ import {
   parseCharacterMe,
   parseClientNav,
   parseClientStatus,
+  parseCountries,
+  parseCountryOverview,
   parseCorporationDetail,
   parseElectionDetail,
   parseExecuteResult,
@@ -28,6 +30,7 @@ import {
   validateNotificationPreference,
   validateSnoozeMinutes,
   validateUnionId,
+  isCountryCode,
   type MpCabinetDetailView,
   type MpCapabilitiesView,
   type MpCharacterView,
@@ -40,6 +43,8 @@ import {
   type MpPresenceView,
   type MpTurnView,
   type MpStatusView,
+  type MpNationView,
+  type MpNationOverviewView,
   type MpUnionDetailView,
 } from "./validators";
 import type { MpMutateOpId } from "./endpoints";
@@ -103,6 +108,17 @@ export interface MpSnapshot {
    * view (or stays absent) without touching phase or error state.
    */
   status: MpStatusView | null;
+  /**
+   * Registered nations directory (#510 world destinations). Loaded on demand
+   * from the public /api/countries read; a failed read keeps the last good
+   * directory and never blocks the session.
+   */
+  nations: MpNationView[] | null;
+  /**
+   * Headline figures for the selected nation, from
+   * /api/country/[code]/overview-counts. Loaded on demand.
+   */
+  nationOverview: MpNationOverviewView | null;
   /** Last server-confirmed notice (action result); cleared on next load. */
   notice: string | null;
   /** Last human-readable failure; cleared when a call succeeds. */
@@ -129,6 +145,8 @@ const INITIAL_SNAPSHOT: MpSnapshot = {
   mailSent: null,
   presence: null,
   status: null,
+  nations: null,
+  nationOverview: null,
   notice: null,
   error: null,
   retryAfter: null,
@@ -145,9 +163,9 @@ export const MP_MAIL_LIMIT = 50;
 
 function emptyAuthed(): Pick<
   MpSnapshot,
-  "character" | "savings" | "turn" | "capabilities" | "electionDetail" | "corporationDetail" | "unionDetail" | "cabinetDetail" | "governorDetail" | "inbox" | "mailInbox" | "mailSent" | "presence" | "status"
+  "character" | "savings" | "turn" | "capabilities" | "electionDetail" | "corporationDetail" | "unionDetail" | "cabinetDetail" | "governorDetail" | "inbox" | "mailInbox" | "mailSent" | "presence" | "status" | "nations" | "nationOverview"
 > {
-  return { character: null, savings: null, turn: null, capabilities: null, electionDetail: null, corporationDetail: null, unionDetail: null, cabinetDetail: null, governorDetail: null, inbox: null, mailInbox: null, mailSent: null, presence: null, status: null };
+  return { character: null, savings: null, turn: null, capabilities: null, electionDetail: null, corporationDetail: null, unionDetail: null, cabinetDetail: null, governorDetail: null, inbox: null, mailInbox: null, mailSent: null, presence: null, status: null, nations: null, nationOverview: null };
 }
 
 export class MpModeSession {
@@ -494,6 +512,56 @@ export class MpModeSession {
       const status = parseClientStatus(result.bodyText);
       if (!status) return this.get();
       return this.set({ status });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
+   * Read the registered nation directory (#510 world destinations).
+   * GET /api/countries is public and answers the runtime country list with
+   * each country's identity and institutions. Loaded on demand so opening
+   * the session never pays for it; every failure keeps the last good
+   * directory and leaves the session untouched. Never throws.
+   */
+  async loadNations(): Promise<MpSnapshot> {
+    try {
+      const result = await mpFetch(this.host, "countries");
+      if (result.kind !== "ok") return this.get();
+      const nations = parseCountries(result.bodyText);
+      if (!nations) return this.get();
+      return this.set({ nations });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
+   * Read the headline figures for one nation (#510 world destinations).
+   * GET /api/country/[code]/overview-counts is public; the code is checked
+   * here and again by the Rust bridge. A failed or unknown country keeps the
+   * previous figures and never fails the session. Never throws.
+   */
+  async loadNationOverview(code: unknown): Promise<MpSnapshot> {
+    if (!isCountryCode(code)) return this.get();
+    try {
+      const result = await mpFetch(
+        this.host,
+        "country-overview",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        code,
+      );
+      if (result.kind !== "ok") return this.get();
+      const nationOverview = parseCountryOverview(result.bodyText);
+      if (!nationOverview) return this.get();
+      return this.set({ nationOverview });
     } catch {
       return this.get();
     }

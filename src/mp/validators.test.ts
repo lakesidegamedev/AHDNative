@@ -11,6 +11,8 @@ import {
   parseCharacterMe,
   parseClientNav,
   parseClientStatus,
+  parseCountries,
+  parseCountryOverview,
   parseCorporationDetail,
   parseElectionDetail,
   parseExecuteResult,
@@ -390,6 +392,100 @@ describe("parseClientStatus", () => {
     expect(parseClientStatus(JSON.stringify({ status: "no-character" }))).toBeNull();
     expect(parseClientStatus(JSON.stringify({ name: "Ada" }))).toBeNull();
     expect(parseClientStatus("not json")).toBeNull();
+  });
+});
+
+describe("parseCountries", () => {
+  const full = () =>
+    JSON.stringify({
+      countries: [
+        {
+          id: "US",
+          name: "United States",
+          status: "active",
+          enabledForPlayers: true,
+          flagEmoji: "🇺🇸",
+          regionLabel: "State",
+          regionLabelPlural: "States",
+          executiveTitle: "President",
+          governmentType: "presidential_republic",
+          governmentTypeLabel: "Federal presidential republic",
+          exchangeName: "New York Stock Exchange",
+          legislature: { name: "Congress", path: "/country/us/legislature", lowerName: "House", upperName: "Senate" },
+          centralBank: { name: "Federal Reserve", abbreviation: "FED" },
+        },
+      ],
+    });
+
+  it("projects the nation directory", () => {
+    expect(parseCountries(full())).toEqual([
+      {
+        id: "US",
+        name: "United States",
+        flagEmoji: "🇺🇸",
+        status: "active",
+        enabledForPlayers: true,
+        governmentType: "presidential_republic",
+        governmentTypeLabel: "Federal presidential republic",
+        regionLabel: "State",
+        regionLabelPlural: "States",
+        executiveTitle: "President",
+        legislatureName: "Congress",
+        lowerChamberName: "House",
+        upperChamberName: "Senate",
+        centralBankName: "Federal Reserve",
+        centralBankAbbreviation: "FED",
+        exchangeName: "New York Stock Exchange",
+      },
+    ]);
+  });
+
+  it("fails closed on a malformed directory", () => {
+    expect(parseCountries(JSON.stringify({ countries: [{ id: "usa", name: "United States" }] }))).toBeNull();
+    expect(parseCountries(JSON.stringify({ countries: [{ id: "US" }] }))).toBeNull();
+    expect(parseCountries(JSON.stringify({ countries: "nope" }))).toBeNull();
+    expect(parseCountries("not json")).toBeNull();
+  });
+});
+
+describe("parseCountryOverview", () => {
+  it("projects the headline figures and degrades the rest to null", () => {
+    expect(
+      parseCountryOverview(
+        JSON.stringify({
+          parties: 42,
+          politicians: 120,
+          activeElections: 1,
+          upcomingElections: 2,
+          bills: 87,
+          regions: 50,
+          primeRate: 4.5,
+          gdpMillions: 25000000,
+          budgetBalancePctGdp: -1.25,
+          unions: 12,
+          commandEconomy: false,
+        }),
+      ),
+    ).toMatchObject({
+      parties: 42,
+      politicians: 120,
+      activeElections: 1,
+      upcomingElections: 2,
+      bills: 87,
+      regions: 50,
+      primeRate: 4.5,
+      gdpMillions: 25000000,
+      budgetBalancePctGdp: -1.25,
+      unions: 12,
+      commandEconomy: false,
+      activeReferendums: null,
+      totalReferendums: null,
+    });
+  });
+
+  it("rejects an error envelope and a malformed body", () => {
+    expect(parseCountryOverview(JSON.stringify({ error: "Invalid country code" }))).toBeNull();
+    expect(parseCountryOverview("not json")).toBeNull();
   });
 });
 

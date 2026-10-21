@@ -164,6 +164,15 @@ pub enum MpFetchOp {
     /// `governorOffice.stateId` (like CA/SN); see
     /// [`is_governor_country_code`] and [`is_governor_state_id`].
     GovernorDetail,
+    /// Registered nations directory; GET /api/countries (public, no auth,
+    /// no query). Answers the runtime country list with each country's
+    /// identity and institutions.
+    Countries,
+    /// National overview counts; GET
+    /// /api/country/[code]/overview-counts (public, no auth, 400 on an
+    /// invalid country). The country code is a two-letter COUNTRY_CONFIGS
+    /// key like US/UK/DE/JP/CN; see [`is_country_code`].
+    CountryOverview,
 }
 
 impl MpFetchOp {
@@ -186,6 +195,8 @@ impl MpFetchOp {
             "union-detail" => Some(Self::UnionDetail),
             "cabinet-detail" => Some(Self::CabinetDetail),
             "governor-detail" => Some(Self::GovernorDetail),
+            "countries" => Some(Self::Countries),
+            "country-overview" => Some(Self::CountryOverview),
             _ => None,
         }
     }
@@ -209,6 +220,8 @@ impl MpFetchOp {
             Self::UnionDetail => "/api/unions",
             Self::CabinetDetail => "/api/country",
             Self::GovernorDetail => "/api/country",
+            Self::Countries => "/api/countries",
+            Self::CountryOverview => "/api/country",
         }
     }
 }
@@ -654,6 +667,38 @@ fn fetch_union_path(union_id: &str) -> Result<String, String> {
         return Err(error::BAD_ARG.to_string());
     }
     Ok(format!("{}/{}", MpFetchOp::UnionDetail.path(), union_id))
+}
+
+/// Nation overview country key: a two-letter COUNTRY_CONFIGS key like
+/// US/UK/DE/JP/CN (the route uppercases before lookup). Two ASCII letters,
+/// any case; the builder uppercases so the pinned path is canonical.
+fn is_country_code(value: &str) -> bool {
+    value.len() == 2 && value.bytes().all(|byte| byte.is_ascii_alphabetic())
+}
+
+/// Build the exact national overview request path from a validated country
+/// key. The code is a path segment (never a query pair) and carries no
+/// pagination.
+fn fetch_country_overview_path(country_code: &str) -> Result<String, String> {
+    if !is_country_code(country_code) {
+        return Err(error::BAD_ARG.to_string());
+    }
+    Ok(format!(
+        "{}/{}/overview-counts",
+        MpFetchOp::CountryOverview.path(),
+        country_code.to_ascii_uppercase()
+    ))
+}
+
+/// True for the pinned national overview path shape.
+fn is_country_overview_path(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/country/") else {
+        return false;
+    };
+    let Some(code) = rest.strip_suffix("/overview-counts") else {
+        return false;
+    };
+    is_country_code(code)
 }
 
 /// Cabinet briefing country key: the client-nav `cabinetOffice.countryCode`
@@ -1114,6 +1159,7 @@ fn is_allowlisted_call(method: &str, path_and_query: &str) -> bool {
         | ("GET", "/api/game-time") => query.is_none(),
         // The status read only ever runs with the pinned minimal layout.
         ("GET", "/api/client-status") => matches!(query, Some("layout=minimal")),
+        ("GET", "/api/countries") => query.is_none(),
         ("GET", "/api/notifications") | ("GET", "/api/mail") | ("GET", "/api/mail/sent") => {
             match query {
                 Some(query) => is_paged_query(query),
@@ -1129,7 +1175,10 @@ fn is_allowlisted_call(method: &str, path_and_query: &str) -> bool {
         }
         ("GET", path) if path.starts_with("/api/unions/") => query.is_none() && is_union_path(path),
         ("GET", path) if path.starts_with("/api/country/") => {
-            query.is_none() && (is_cabinet_path(path) || is_governor_path(path))
+            query.is_none()
+                && (is_cabinet_path(path)
+                    || is_governor_path(path)
+                    || is_country_overview_path(path))
         }
         ("POST", "/api/actions/execute") | ("PATCH", "/api/notifications") => query.is_none(),
         ("PUT", "/api/notifications/preferences") => query.is_none(),
@@ -1677,6 +1726,8 @@ pub struct MpFetchDetail {
     pub governor_country_code: Option<String>,
     #[serde(default, rename = "governorStateId")]
     pub governor_state_id: Option<String>,
+    #[serde(default, rename = "countryCode")]
+    pub country_code: Option<String>,
 }
 
 /// Fetch one allowlisted read through the live-site session. Resolves with
@@ -1702,6 +1753,7 @@ pub async fn mp_session_fetch(
                 || detail.cabinet_position_id.is_some()
                 || detail.governor_country_code.is_some()
                 || detail.governor_state_id.is_some()
+                || detail.country_code.is_some()
             {
                 return Err(error::UNSUPPORTED_OP.to_string());
             }
@@ -1720,6 +1772,7 @@ pub async fn mp_session_fetch(
                 || detail.cabinet_position_id.is_some()
                 || detail.governor_country_code.is_some()
                 || detail.governor_state_id.is_some()
+                || detail.country_code.is_some()
             {
                 return Err(error::UNSUPPORTED_OP.to_string());
             }
@@ -1738,6 +1791,7 @@ pub async fn mp_session_fetch(
                 || detail.cabinet_position_id.is_some()
                 || detail.governor_country_code.is_some()
                 || detail.governor_state_id.is_some()
+                || detail.country_code.is_some()
             {
                 return Err(error::UNSUPPORTED_OP.to_string());
             }
@@ -1755,6 +1809,7 @@ pub async fn mp_session_fetch(
                 || detail.union_id.is_some()
                 || detail.governor_country_code.is_some()
                 || detail.governor_state_id.is_some()
+                || detail.country_code.is_some()
             {
                 return Err(error::UNSUPPORTED_OP.to_string());
             }
@@ -1776,6 +1831,7 @@ pub async fn mp_session_fetch(
                 || detail.union_id.is_some()
                 || detail.cabinet_country_code.is_some()
                 || detail.cabinet_position_id.is_some()
+                || detail.country_code.is_some()
             {
                 return Err(error::UNSUPPORTED_OP.to_string());
             }
@@ -1789,6 +1845,41 @@ pub async fn mp_session_fetch(
                 .ok_or_else(|| error::BAD_ARG.to_string())?;
             fetch_governor_path(country, state)?
         }
+        MpFetchOp::Countries => {
+            if limit.is_some()
+                || offset.is_some()
+                || detail.election_id.is_some()
+                || detail.corporation_id.is_some()
+                || detail.union_id.is_some()
+                || detail.cabinet_country_code.is_some()
+                || detail.cabinet_position_id.is_some()
+                || detail.governor_country_code.is_some()
+                || detail.governor_state_id.is_some()
+                || detail.country_code.is_some()
+            {
+                return Err(error::UNSUPPORTED_OP.to_string());
+            }
+            fetch_path_and_query(op, limit, offset)?
+        }
+        MpFetchOp::CountryOverview => {
+            if limit.is_some()
+                || offset.is_some()
+                || detail.election_id.is_some()
+                || detail.corporation_id.is_some()
+                || detail.union_id.is_some()
+                || detail.cabinet_country_code.is_some()
+                || detail.cabinet_position_id.is_some()
+                || detail.governor_country_code.is_some()
+                || detail.governor_state_id.is_some()
+            {
+                return Err(error::UNSUPPORTED_OP.to_string());
+            }
+            let country = detail
+                .country_code
+                .as_deref()
+                .ok_or_else(|| error::BAD_ARG.to_string())?;
+            fetch_country_overview_path(country)?
+        }
         _ => {
             if detail.election_id.is_some()
                 || detail.corporation_id.is_some()
@@ -1797,6 +1888,7 @@ pub async fn mp_session_fetch(
                 || detail.cabinet_position_id.is_some()
                 || detail.governor_country_code.is_some()
                 || detail.governor_state_id.is_some()
+                || detail.country_code.is_some()
             {
                 return Err(error::BAD_ARG.to_string());
             }
@@ -1881,6 +1973,47 @@ mod tests {
         assert!(!is_allowlisted_call("GET", "/api/client-status?layout=full"));
         assert!(!is_allowlisted_call("GET", "/api/client-status?layout=minimal&x=1"));
         assert!(!is_allowlisted_call("POST", "/api/client-status?layout=minimal"));
+    }
+
+    #[test]
+    fn world_reads_resolve_to_pinned_paths() {
+        assert_eq!(MpFetchOp::from_id("countries"), Some(MpFetchOp::Countries));
+        assert_eq!(MpFetchOp::Countries.path(), "/api/countries");
+        assert_eq!(
+            fetch_path_and_query(MpFetchOp::Countries, None, None).unwrap(),
+            "/api/countries"
+        );
+        assert!(is_allowlisted_call("GET", "/api/countries"));
+        assert!(!is_allowlisted_call("GET", "/api/countries?x=1"));
+        assert!(!is_allowlisted_call("POST", "/api/countries"));
+
+        assert_eq!(
+            MpFetchOp::from_id("country-overview"),
+            Some(MpFetchOp::CountryOverview)
+        );
+        assert_eq!(
+            fetch_country_overview_path("us").unwrap(),
+            "/api/country/US/overview-counts"
+        );
+        assert!(is_allowlisted_call(
+            "GET",
+            "/api/country/US/overview-counts"
+        ));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/countries/US/overview-counts"
+        ));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/country/USA/overview-counts"
+        ));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/country/US/overview-counts?x=1"
+        ));
+        assert!(fetch_country_overview_path("usa").is_err());
+        assert!(fetch_country_overview_path("U1").is_err());
+        assert!(fetch_country_overview_path("").is_err());
     }
 
     #[test]

@@ -520,6 +520,129 @@ export function parseClientStatus(bodyText: string): MpStatusView | null {
 }
 
 /**
+ * One registered nation from GET /api/countries (AHDGame
+ * src/app/api/countries/route.ts). The reference mobile menu renders the
+ * same directory as its nation switcher.
+ */
+export interface MpNationView {
+  /** Two-letter COUNTRY_CONFIGS key (US, UK, DE, ...). */
+  id: string;
+  name: string;
+  flagEmoji: string | null;
+  /** Runtime status (active, seceded, ...). */
+  status: string | null;
+  enabledForPlayers: boolean | null;
+  governmentType: string | null;
+  governmentTypeLabel: string | null;
+  regionLabel: string | null;
+  regionLabelPlural: string | null;
+  executiveTitle: string | null;
+  legislatureName: string | null;
+  lowerChamberName: string | null;
+  upperChamberName: string | null;
+  centralBankName: string | null;
+  centralBankAbbreviation: string | null;
+  exchangeName: string | null;
+}
+
+const COUNTRY_ID = /^[A-Z]{2}$/;
+
+/**
+ * A COUNTRY_CONFIGS key (US, UK, DE, ...) for the country-scoped reads.
+ * The Rust bridge validates the same shape before it builds a path.
+ */
+export function isCountryCode(value: unknown): value is string {
+  return typeof value === "string" && COUNTRY_ID.test(value);
+}
+
+/**
+ * countries: the nation directory. A malformed entry invalidates the whole
+ * projection (never a half-invented directory), and a body without the
+ * array fails closed.
+ */
+export function parseCountries(bodyText: string): MpNationView[] | null {
+  const record = asRecord(parseJsonBody(bodyText));
+  if (!record || !Array.isArray(record.countries)) return null;
+  const nations: MpNationView[] = [];
+  for (const entry of record.countries) {
+    const item = asRecord(entry);
+    const id = item ? asTrimmedString(item.id) : null;
+    const name = item ? asTrimmedString(item.name) : null;
+    if (!item || !id || !name || !COUNTRY_ID.test(id)) return null;
+    const legislature = asRecord(item.legislature);
+    const centralBank = asRecord(item.centralBank);
+    nations.push({
+      id,
+      name,
+      flagEmoji: asTrimmedString(item.flagEmoji ?? null),
+      status: asTrimmedString(item.status ?? null),
+      enabledForPlayers: asBoolean(item.enabledForPlayers),
+      governmentType: asTrimmedString(item.governmentType ?? null),
+      governmentTypeLabel: asTrimmedString(item.governmentTypeLabel ?? null),
+      regionLabel: asTrimmedString(item.regionLabel ?? null),
+      regionLabelPlural: asTrimmedString(item.regionLabelPlural ?? null),
+      executiveTitle: asTrimmedString(item.executiveTitle ?? null),
+      legislatureName: legislature ? asTrimmedString(legislature.name ?? null) : null,
+      lowerChamberName: legislature ? asTrimmedString(legislature.lowerName ?? null) : null,
+      upperChamberName: legislature ? asTrimmedString(legislature.upperName ?? null) : null,
+      centralBankName: centralBank ? asTrimmedString(centralBank.name ?? null) : null,
+      centralBankAbbreviation: centralBank ? asTrimmedString(centralBank.abbreviation ?? null) : null,
+      exchangeName: asTrimmedString(item.exchangeName ?? null),
+    });
+  }
+  return nations;
+}
+
+/**
+ * The national headline figures from
+ * GET /api/country/[code]/overview-counts. Every figure degrades to null
+ * independently, exactly as the server counts them, so a partial answer
+ * never invents a number.
+ */
+export interface MpNationOverviewView {
+  parties: number | null;
+  politicians: number | null;
+  activeElections: number | null;
+  upcomingElections: number | null;
+  bills: number | null;
+  regions: number | null;
+  primeRate: number | null;
+  gdpMillions: number | null;
+  budgetBalancePctGdp: number | null;
+  unions: number | null;
+  activeReferendums: number | null;
+  totalReferendums: number | null;
+  /** Planned (command or dual-track) economy flag. */
+  commandEconomy: boolean | null;
+}
+
+export function parseCountryOverview(bodyText: string): MpNationOverviewView | null {
+  const record = asRecord(parseJsonBody(bodyText));
+  if (!record) return null;
+  // The route answers 400 with an error envelope for an unknown country.
+  if (asTrimmedString(record.error ?? null)) return null;
+  const count = (value: unknown) => {
+    const parsed = asNumber(value);
+    return parsed === null || parsed < 0 ? null : parsed;
+  };
+  return {
+    parties: count(record.parties),
+    politicians: count(record.politicians),
+    activeElections: count(record.activeElections),
+    upcomingElections: count(record.upcomingElections),
+    bills: count(record.bills),
+    regions: count(record.regions),
+    primeRate: asNumber(record.primeRate),
+    gdpMillions: count(record.gdpMillions),
+    budgetBalancePctGdp: asNumber(record.budgetBalancePctGdp),
+    unions: count(record.unions),
+    activeReferendums: count(record.activeReferendums),
+    totalReferendums: count(record.totalReferendums),
+    commandEconomy: asBoolean(record.commandEconomy),
+  };
+}
+
+/**
  * Election detail reference accepted by GET /api/elections?id= (AHDGame
  * resolveElection accepts a 24-hex ObjectId or a seatId like US-senate-PA-1;
  * see isSeatId in src/lib/elections/resolveElection.ts). Bounded so the id
