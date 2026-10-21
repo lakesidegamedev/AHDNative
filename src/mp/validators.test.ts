@@ -371,6 +371,7 @@ describe("parseClientStatus", () => {
       donorBaseLevel: 2,
       politicalInfluence: 61,
       favorability: 55,
+      campaignIncomeBreakdown: null,
     });
   });
 
@@ -398,6 +399,47 @@ describe("parseClientStatus", () => {
     expect(parseClientStatus(JSON.stringify({ status: "no-character" }))).toBeNull();
     expect(parseClientStatus(JSON.stringify({ name: "Ada" }))).toBeNull();
     expect(parseClientStatus("not json")).toBeNull();
+  });
+});
+
+describe("parseClientStatus with the campaign income breakdown", () => {
+  it("projects the per-turn income lines the wide layout carries", () => {
+    const view = parseClientStatus(
+      JSON.stringify({
+        name: "Ada",
+        actions: 3,
+        funds: 1200,
+        cashOnHand: 1000,
+        homeCurrency: "USD",
+        campaignIncomeBreakdown: {
+          populationTier: "large",
+          baseGen: 500,
+          donorBonus: 120,
+          officeBonus: 80,
+          unionContribution: 40,
+          stateTax: 60,
+          nationalTax: 90,
+          totalTax: 150,
+          netPerTurn: 590,
+        },
+      }),
+    );
+    expect(view?.campaignIncomeBreakdown).toEqual({
+      populationTier: "large",
+      baseGen: 500,
+      donorBonus: 120,
+      officeBonus: 80,
+      unionContribution: 40,
+      stateTax: 60,
+      nationalTax: 90,
+      totalTax: 150,
+      netPerTurn: 590,
+    });
+  });
+
+  it("leaves the breakdown absent on the minimal layout", () => {
+    const view = parseClientStatus(JSON.stringify({ name: "Ada", actions: 3, funds: 1200 }));
+    expect(view?.campaignIncomeBreakdown).toBeNull();
   });
 });
 
