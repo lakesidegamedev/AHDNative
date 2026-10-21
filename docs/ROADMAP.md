@@ -1,3 +1,43 @@
+## Latest multiplayer turn contract and MP world destinations, 2026-10-21 (#86 closed / #510 partial)
+
+Current GitHub state: **51 open: 38 partial, 9 not started, 2 deferred, 2
+blocked**, 162 closed. #86 closed in this batch; #510 stays partial and no
+acceptance box is claimed by it.
+
+[PR #748](https://github.com/lakesidegamedev/AHDNative/pull/748) merged as
+`7a7018e3` after the full application, engine, content, browser and Rust gate
+passed ([run 39657927912](https://github.com/lakesidegamedev/AHDNative/actions/runs/39657927912)).
+Local evidence on the merged tree: `npm test` 142 files / 1105 tests, `npm run
+test:ui` 180 files / 1705 tests, `cargo test --manifest-path
+src-tauri/Cargo.toml --lib` 90 tests, `cargo fmt --check` and `cargo clippy
+--all-targets -- -D warnings` clean.
+
+What changed for players:
+
+- The multiplayer turn is the current one. The audited contract registry is
+  pinned to AHDGame `e35f75e3` (2,951 commits past the previous `e364c049`
+  pin), the latest turn-status fields are projected, and the turn is re-polled
+  on the reference cadence, so an open screen no longer shows a stale turn.
+- Singleplayer and multiplayer render the same calendar - `Turn N · [Founding]
+  Month, Week N, Year` - from one shared, engine-free calendar module, with
+  a test that pins both modes to the same string.
+- The multiplayer footer matches the singleplayer footer: identity, action
+  points, campaign funds, cash, influence and favorability, each chip opening
+  that resource's details, refreshed on the reference cadence.
+- Multiplayer gained the world destinations it had none of: Nations (the
+  runtime directory, per-nation figures, regions, parties and politicians),
+  Elections (the nation's races, opening the same race detail the Standing
+  drill-in uses) and News (the world feed, read-only), plus the reference's
+  support links and mail recipient search by name.
+- The multiplayer identity labels resolve the party and home-region names the
+  reference shows instead of the raw record keys.
+
+Still open under #510: the complete route/destination matrix across every
+reference destination and role/country condition, the remaining multiplayer
+destinations and actions, the per-turn campaign-income breakdown in the
+multiplayer footer, and the physical-iPhone navigation and safe-area acceptance
+(#363/#436). No device run is claimed here.
+
 ## Internal game-menu preview delivered, 2026-10-03 (#124 / #510 partial)
 
 Current GitHub state: **52 open: 38 partial, 9 not started, 3 deferred, 2 blocked**.
