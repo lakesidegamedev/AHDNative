@@ -104,6 +104,11 @@
  *   it adds the per-turn campaign income breakdown the minimal layout omits,
  *   at the cost of the reference's enrichment queries, so Native reads it
  *   on demand (when the funds details are opened) and never polls it.
+ * - country-leaders   GET /api/country/[code]/legislature/leaders
+ *   public, no auth; 404 on an invalid country. The nation's legislature
+ *   leadership (AHDGame src/app/api/country/[code]/legislature/leaders/
+ *   route.ts): 200 {primeMinister:{characterId,characterName,party,since,
+ *   avatarUrl}|null, oppositionLeader:{...}|null, speaker:null}.
  * - turn-status       /api/game/turn/status    public; 404 uninitialized
  *   {singleplayer,currentTurn,currentYear,startingYear,preset,
  *   preIterationTurns,preIterationActive,isActive,isProcessing,
@@ -396,6 +401,7 @@ export type MpFetchOpId =
   | "country-states"
   | "country-parties"
   | "country-politicians"
+  | "country-leaders"
   | "election-list"
   | "news-feed"
   | "character-search";

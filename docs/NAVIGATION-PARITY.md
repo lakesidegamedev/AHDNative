@@ -989,3 +989,22 @@ honest), `src/mp/status.test.ts` (the breakdown projection and the
 last-good-view posture) and the Rust test
 `mp_session::tests::full_status_read_pins_the_full_layout`. No
 physical-iPhone evidence is claimed; #363/#436 remain open.
+
+## 30. MP nation leadership (#510)
+
+The reference nation page names the people who run the country. The
+multiplayer nation drill-in stopped at the institutions.
+
+Delivered:
+
+- A new audited read, `GET /api/country/[code]/legislature/leaders`,
+  answers the nation's legislature leadership. The Rust bridge pins the
+  country code and the path shape.
+- The nation card now names the prime minister and the opposition leader
+  with their party, exactly as the server reports them. A seat the server
+  does not publish (the speaker, for now) stays absent.
+
+Focused evidence: `src/ui/MpNations510.test.tsx` (the leadership rows ride
+the nation drill-in), `src/mp/nations.test.ts` (the projection, the invalid
+code refusal, the last-good-holders posture) and the Rust path/allowlist
+assertions. No physical-iPhone evidence is claimed; #363/#436 remain open.
