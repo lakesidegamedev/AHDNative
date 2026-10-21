@@ -1,7 +1,9 @@
 /**
  * Audited multiplayer endpoint registry (#359).
  *
- * Pinned against public AHDGame at e364c04954ed628beef73a993a8e9e156650a31e.
+ * Pinned against public AHDGame at e35f75e3fe230e7ab4439a4f63b7269829a64f9d
+ * (origin/main, latest multiplayer release; the previous pin was
+ * e364c04954ed628beef73a993a8e9e156650a31e, 2,951 commits stale).
  * Every entry records the method, auth gate, rate limit, and response shapes
  * the Native adapter relies on. The server is authoritative: this file models
  * the contract, it never reimplements it.
@@ -28,17 +30,99 @@
  *   Cache: no-store. (PATCH /api/character/me exists for onboarding flags;
  *   not modeled: absent in v1.)
  * - client-nav        /api/client-nav          optional auth, guest fallback
+ * - client-status     /api/client-status?layout=minimal
+ *   requireBasicAuth; 401 signed out; 200 {status:"no-character"} when the
+ *   account has no active character. Status-bar scalars for the signed-in
+ *   character (AHDGame src/app/api/client-status/route.ts): {name, avatarUrl,
+ *   actions, actionCap, hoardThreshold, funds, campaignFundsStored,
+ *   cashOnHand, personalHomeLiquid, homeCurrency, donorBaseLevel,
+ *   politicalInfluence, favorability, currentOfficeType, ...}.
+ *   The layout is pinned to `minimal` by the Rust bridge: that layout answers
+ *   the action/funds/cash/influence/favorability figures the footer shows
+ *   and skips the corporation, election and income enrichment the wider
+ *   layouts run. Native projects only the scalars above; the income
+ *   breakdown, corporation nav, election stats and turn briefing stay
+ *   server-side, and the reference polls this read every 60s, on a new turn
+ *   and on foreground return.
+ * - countries          GET /api/countries          public, no auth, no query.
+ *   The runtime nation directory (AHDGame src/app/api/countries/route.ts):
+ *   200 {countries:[{id,name,status,enabledForPlayers,economyPreview,
+ *   econOnly,flagEmoji,regionLabel,regionLabelPlural,executiveTitle,
+ *   governmentType,governmentTypeLabel,exchangeName,legislature:{name,path,
+ *   lowerName,upperName},entryPath,overviewPath,mapPath,executivePath,
+ *   executiveLabel,centralBank:{name,abbreviation}}]}. Cache: public,
+ *   s-maxage=60. This is the source the reference mobile menu's nation
+ *   switcher renders (ExperimentalMobileMenu.tsx), so Native uses it for
+ *   the same destination.
+ * - country-overview   GET /api/country/[code]/overview-counts
+ *   public, no auth; 400 on an invalid country. The national headline
+ *   figures (AHDGame src/app/api/country/[code]/overview-counts/route.ts):
+ *   200 {parties,politicians,activeElections,upcomingElections,bills,
+ *   regions,primeRate,commandEconomy?,gdpMillions?,budgetBalancePctGdp?,
+ *   unions?,activeReferendums?,totalReferendums?,coldWarDefcon?,
+ *   navairFormations?}. Every figure degrades to null independently on the
+ *   server; Native projects only the figures it renders.
+ * - country-states     GET /api/country/[code]/states
+ *   public, no auth; 400 on an invalid country. The nation's regions
+ *   (AHDGame src/app/api/country/[code]/states/route.ts): 200
+ *   {states:[{id,name}]}. Native projects the id and name only.
+ * - country-parties     GET /api/country/[code]/parties
+ *   public, no auth; 400 on an invalid country. The nation's political
+ *   parties (AHDGame src/app/api/country/[code]/parties/route.ts): 200
+ *   {parties:[{id,objectId,name,abbreviation,color,chair,viceChair,
+ *   treasurer,leadershipTitles,treasury,memberCount,playerCount,nppCount,
+ *   economicPosition,socialPosition,tier,...}]}. Native projects the
+ *   directory fields it renders and leaves the rest server-side.
+ * - country-politicians GET /api/country/[code]/politicians
+ *   public, no auth; 400 on an invalid country. The nation's politicians and
+ *   NPPs (AHDGame src/app/api/country/[code]/politicians/route.ts): 200
+ *   {politicians:[{id,name,party,partyName,countryId,homeState,
+ *   homeStateName,currentOffice,officeType,politicalInfluence,
+ *   nationalInfluence,favorability,funds,isNPP}],total,playerCount,nppCount}.
+ * - election-list     GET /api/elections?country={code}&view=summary
+ *   public with optional auth; 400 on an invalid country. The nation's
+ *   races (AHDGame src/app/api/elections/route.ts list mode): 200
+ *   {elections:[{id,seatId,electionType,state,countryId,cycle,status,
+ *   inPrimary,isEnded,isUpcoming,inGeneral,candidates,polling,incumbent}],
+ *   total, page}. The list items are the same resolved summary the
+ *   single-election read returns, so Native projects them through one
+ *   shared projection.
+ * - news-feed         GET /api/news?limit={limit}&offset={offset}
+ *   public, no auth. The world news feed (AHDGame
+ *   src/app/api/news/route.ts): 200 {posts:[{_id,title,content,authorName,
+ *   authorAvatarUrl,imageUrl,isSystem,feedType,category,reactions,
+ *   replyCount,createdAt}]}. The route caps the page at 50 and Native
+ *   reads the widest page it allows.
+ * - character-search  GET /api/characters/search?q={query}&limit=10
+ *   public, no auth. Character search by name (AHDGame
+ *   src/app/api/characters/search/route.ts): 200
+ *   {results:[{id,userId,name,username,discordUsername,party,homeState,
+ *   avatarUrl,currentOffice}]}. The route ignores queries shorter than two
+ *   characters; the bridge pins the limit at 10 and encodes the fragment.
  * - turn-status       /api/game/turn/status    public; 404 uninitialized
- *   {singleplayer,currentTurn,currentYear,isActive,isProcessing,
- *   nextScheduledTurn|null,processingPhaseLabel,...}
- *   Native projects the processing slice too (#359): `processingProgress`
- *   (server-clamped 0..98 int while processing, null otherwise; the adapter
- *   accepts any finite 0..100 and renders it rounded, malformed or
- *   out-of-range values render no percent) and `processingTargetTurn`
- *   (rendered only while isProcessing). Heartbeat/started-at timestamps,
- *   lock-retry fields, and per-phase statuses stay unprojected: staleness
- *   classification stays server-side and Native never ages, dismisses, or
- *   completes processing state locally.
+ *   {singleplayer,currentTurn,currentYear,startingYear,preset,
+ *   preIterationTurns,preIterationActive,isActive,isProcessing,
+ *   lastTurnProcessed,lastMarketTickAt,nextScheduledTurn|null,
+ *   iterationId,processingPhaseLabel,processingProgress,
+ *   processingTargetTurn,pausedAt,pauseReason,pauseKind,fastMode,...}
+ *   Latest-reference note (e35f75e3): `iterationId` and `lastMarketTickAt`
+ *   were added after e364c049; `startingYear`, `preset`, `pauseKind` and the
+ *   pre-iteration clock fields are now projected because the reference
+ *   calendar uses them. `startingYear`/`preIterationTurns`/`preIterationActive`
+ *   feed `formatServerTurnDate` so MP renders the same LARP date, founding
+ *   freeze and era year as SP; `pauseKind` distinguishes manual from
+ *   auto-drift pauses. Native projects the processing slice too (#359):
+ *   `processingProgress` (server-clamped 0..98 int while processing, null
+ *   otherwise; the adapter accepts any finite 0..100 and renders it rounded,
+ *   malformed or out-of-range values render no percent) and
+ *   `processingTargetTurn` (rendered only while isProcessing). Heartbeat/
+ *   started-at timestamps, lock-retry fields, and per-phase statuses stay
+ *   unprojected: staleness classification stays server-side and Native never
+ *   ages, dismisses, or completes processing state locally.
+ *   Native polls this public read on the reference cadence (1.5s processing,
+ *   15s/60s near a turn or market tick, 120s relaxed, 300s hidden) through
+ *   `loadTurnStatus`, so the displayed turn keeps referencing the latest
+ *   server turn instead of the mount snapshot.
  * - players-online    GET /api/players/online    public, no session required.
  *   Count of non-banned players active within the last hour
  *   (src/app/api/players/online/route.ts): 200 {online: number, asOf: ISO}.
@@ -280,7 +364,7 @@
  *   24-hex character id.
  */
 
-export const MP_AUDIT_REVISION = "e364c04954ed628beef73a993a8e9e156650a31e";
+export const MP_AUDIT_REVISION = "e35f75e3fe230e7ab4439a4f63b7269829a64f9d";
 export const MP_ORIGIN = "https://ahousedividedgame.com";
 
 export type MpFetchOpId =
@@ -288,6 +372,7 @@ export type MpFetchOpId =
   | "character-me"
   | "savings-accounts"
   | "client-nav"
+  | "client-status"
   | "turn-status"
   | "players-online"
   | "game-time"
@@ -299,7 +384,15 @@ export type MpFetchOpId =
   | "corporation-detail"
   | "union-detail"
   | "cabinet-detail"
-  | "governor-detail";
+  | "governor-detail"
+  | "countries"
+  | "country-overview"
+  | "country-states"
+  | "country-parties"
+  | "country-politicians"
+  | "election-list"
+  | "news-feed"
+  | "character-search";
 
 export type MpMutateOpId =
   | "execute-action"

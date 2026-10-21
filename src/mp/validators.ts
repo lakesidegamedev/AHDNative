@@ -12,6 +12,7 @@ import {
   type MpNotificationPreferenceAction,
   type MpNotificationType,
 } from "./endpoints";
+import { serverStartingYear } from "./turnCalendar";
 
 /**
  * Runtime validation for authoritative payloads (#359). Every remote body is
@@ -174,6 +175,29 @@ export interface MpTurnView {
   nextScheduledTurn: string | null;
   paused: boolean;
   pauseReason: string | null;
+  /**
+   * Calendar year of turn 1 for the active reset preset (`startingYear`).
+   * Latest turn-status always reports it; when an older server omits it the
+   * parser derives it from the pinned `currentYear` so dates cannot shift a
+   * year. The LARP date itself is rendered by `formatServerTurnDate`.
+   */
+  startingYear: number;
+  /** Founding turns burned before the calendar started (`preIterationTurns`). */
+  preIterationTurns: number;
+  /**
+   * Founding phase active (`preIterationActive`): the reference pins the
+   * display calendar to the era start, so the footer shows the Founding
+   * badge and the era's first week.
+   */
+  preIterationActive: boolean;
+  /** Server pause classification; null on a running world or unknown value. */
+  pauseKind: "manual" | "auto-drift" | null;
+  preset: string | null;
+  iterationId: string | null;
+  lastTurnProcessed: string | null;
+  /** Last completed quarter-hour market update; display metadata only. */
+  lastMarketTickAt: string | null;
+  fastMode: boolean;
 }
 
 /** turn-status: currentTurn/currentYear required; everything else optional. */
@@ -186,6 +210,16 @@ export function parseTurnStatus(bodyText: string): MpTurnView | null {
   const isProcessing = asBoolean(record.isProcessing) ?? false;
   const pausedAt = record.pausedAt;
   const rawProgress = asNumber(record.processingProgress);
+  const preIterationActive = asBoolean(record.preIterationActive) ?? false;
+  const rawPreIterationTurns = asNumber(record.preIterationTurns);
+  const preIterationTurns =
+    rawPreIterationTurns !== null && rawPreIterationTurns >= 0
+      ? Math.floor(rawPreIterationTurns)
+      : 0;
+  const pauseKind =
+    record.pauseKind === "manual" || record.pauseKind === "auto-drift"
+      ? record.pauseKind
+      : null;
   return {
     currentTurn,
     currentYear,
@@ -201,6 +235,21 @@ export function parseTurnStatus(bodyText: string): MpTurnView | null {
         : null,
     paused: pausedAt !== null && pausedAt !== undefined,
     pauseReason: asTrimmedString(record.pauseReason ?? null),
+    startingYear: serverStartingYear({
+      currentTurn,
+      currentYear,
+      startingYear: asNumber(record.startingYear),
+      preIterationActive,
+      preIterationTurns,
+    }),
+    preIterationTurns,
+    preIterationActive,
+    pauseKind,
+    preset: asTrimmedString(record.preset ?? null),
+    iterationId: asTrimmedString(record.iterationId ?? null),
+    lastTurnProcessed: asTrimmedString(record.lastTurnProcessed ?? null),
+    lastMarketTickAt: asTrimmedString(record.lastMarketTickAt ?? null),
+    fastMode: asBoolean(record.fastMode) ?? false,
   };
 }
 
@@ -312,6 +361,21 @@ export interface MpCapabilitiesView {
   characterName: string | null;
   characterCountryId: string | null;
   unreadMailCount: number | null;
+  /** client-nav campaign funds; the SP footer's Funds chip reads the same figure. */
+  funds: number | null;
+  /**
+   * client-nav homeState: the player's home region, as the reference shows
+   * it. `character-me` reports only the region key, so the name comes from
+   * here.
+   */
+  homeStateId: string | null;
+  homeStateName: string | null;
+  /**
+   * client-nav currentParty: the player's party, as the reference shows it.
+   * `character-me` reports the party key, so the name comes from here.
+   */
+  currentPartyId: string | null;
+  currentPartyName: string | null;
   corporationId: number | null;
   unionId: string | null;
   activeElectionLabel: string | null;
@@ -348,6 +412,8 @@ export function parseClientNav(bodyText: string): MpCapabilitiesView | null {
   const election = asRecord(record.activeElection);
   const cabinet = asRecord(record.cabinetOffice);
   const governor = asRecord(record.governorOffice);
+  const homeState = asRecord(record.homeState);
+  const currentParty = asRecord(record.currentParty);
   // The briefing drill-in needs the seat slug plus the country key, not the
   // display name. A half-valid pair signals a drifting payload, so both
   // degrade to null unless both validate; the display name stands alone.
@@ -370,6 +436,11 @@ export function parseClientNav(bodyText: string): MpCapabilitiesView | null {
     characterName: asTrimmedString(record.characterName ?? null),
     characterCountryId: asTrimmedString(record.characterCountryId ?? null),
     unreadMailCount: record.unreadMailCount === undefined ? null : asNumber(record.unreadMailCount),
+    funds: record.funds === undefined ? null : asNumber(record.funds),
+    homeStateId: homeState ? asTrimmedString(homeState.id ?? null) : null,
+    homeStateName: homeState ? asTrimmedString(homeState.name ?? null) : null,
+    currentPartyId: currentParty ? asTrimmedString(currentParty.id ?? null) : null,
+    currentPartyName: currentParty ? asTrimmedString(currentParty.name ?? null) : null,
     corporationId: asCorporationCapabilityId(record.myCorporationId),
     unionId: asTrimmedString(record.myUnionId ?? null),
     activeElectionLabel: election ? asTrimmedString(election.label ?? null) : null,
@@ -382,6 +453,423 @@ export function parseClientNav(bodyText: string): MpCapabilitiesView | null {
     governorStateId: governorCountryCode !== null && governorStateId !== null ? governorStateId : null,
     governorCountryCode: governorCountryCode !== null && governorStateId !== null ? governorCountryCode : null,
   };
+}
+
+/**
+ * Status-bar scalars for the signed-in character, projected from
+ * GET /api/client-status?layout=minimal (AHDGame
+ * src/app/api/client-status/route.ts). The reference status bar reads the
+ * same payload; Native keeps only the footer figures and leaves the income
+ * breakdown, corporation nav, election stats and turn briefing server-side.
+ */
+export interface MpStatusView {
+  /** Actions the character can still spend this turn. */
+  actions: number | null;
+  /** Per-turn action cap (Energy-scaled). */
+  actionCap: number | null;
+  /** Action count above which the hoarding penalty applies. */
+  hoardThreshold: number | null;
+  /** Campaign funds in internal/anchor units. */
+  funds: number | null;
+  /** Stored campaign-fund balance in the home currency. */
+  campaignFundsStored: number | null;
+  /** Total liquid personal cash. */
+  cashOnHand: number | null;
+  /** Liquid home-currency cash only (spendable without conversion). */
+  personalHomeLiquid: number | null;
+  homeCurrency: string | null;
+  donorBaseLevel: number | null;
+  politicalInfluence: number | null;
+  favorability: number | null;
+}
+
+function statusNumber(value: unknown): number | null {
+  const parsed = asNumber(value);
+  if (parsed === null || parsed < 0) return null;
+  return parsed;
+}
+
+/**
+ * client-status: an account without an active character answers
+ * `{status:"no-character"}`, which is not a player status. A body with none
+ * of the expected scalars is malformed and fails closed. Individual mistyped
+ * fields degrade to null instead of failing the whole projection.
+ */
+export function parseClientStatus(bodyText: string): MpStatusView | null {
+  const record = asRecord(parseJsonBody(bodyText));
+  if (!record) return null;
+  if (asTrimmedString(record.status ?? null) === "no-character") return null;
+  const actions = statusNumber(record.actions);
+  const actionCap = statusNumber(record.actionCap);
+  const hoardThreshold = statusNumber(record.hoardThreshold);
+  const funds = statusNumber(record.funds);
+  const campaignFundsStored = statusNumber(record.campaignFundsStored);
+  const cashOnHand = statusNumber(record.cashOnHand);
+  const personalHomeLiquid = statusNumber(record.personalHomeLiquid);
+  const donorBaseLevel = statusNumber(record.donorBaseLevel);
+  const politicalInfluence = statusNumber(record.politicalInfluence);
+  const favorability = statusNumber(record.favorability);
+  const homeCurrency = asTrimmedString(record.homeCurrency ?? null);
+  const scalars = [
+    actions,
+    actionCap,
+    hoardThreshold,
+    funds,
+    campaignFundsStored,
+    cashOnHand,
+    personalHomeLiquid,
+    donorBaseLevel,
+    politicalInfluence,
+    favorability,
+  ];
+  if (scalars.every((value) => value === null)) return null;
+  return {
+    actions,
+    actionCap,
+    hoardThreshold,
+    funds,
+    campaignFundsStored,
+    cashOnHand,
+    personalHomeLiquid,
+    homeCurrency: homeCurrency && /^[A-Z]{3}$/.test(homeCurrency) ? homeCurrency : null,
+    donorBaseLevel,
+    politicalInfluence,
+    favorability,
+  };
+}
+
+/**
+ * One registered nation from GET /api/countries (AHDGame
+ * src/app/api/countries/route.ts). The reference mobile menu renders the
+ * same directory as its nation switcher.
+ */
+export interface MpNationView {
+  /** Two-letter COUNTRY_CONFIGS key (US, UK, DE, ...). */
+  id: string;
+  name: string;
+  flagEmoji: string | null;
+  /** Runtime status (active, seceded, ...). */
+  status: string | null;
+  enabledForPlayers: boolean | null;
+  governmentType: string | null;
+  governmentTypeLabel: string | null;
+  regionLabel: string | null;
+  regionLabelPlural: string | null;
+  executiveTitle: string | null;
+  legislatureName: string | null;
+  lowerChamberName: string | null;
+  upperChamberName: string | null;
+  centralBankName: string | null;
+  centralBankAbbreviation: string | null;
+  exchangeName: string | null;
+}
+
+const COUNTRY_ID = /^[A-Z]{2}$/;
+
+/**
+ * A COUNTRY_CONFIGS key (US, UK, DE, ...) for the country-scoped reads.
+ * The Rust bridge validates the same shape before it builds a path.
+ */
+export function isCountryCode(value: unknown): value is string {
+  return typeof value === "string" && COUNTRY_ID.test(value);
+}
+
+/**
+ * countries: the nation directory. A malformed entry invalidates the whole
+ * projection (never a half-invented directory), and a body without the
+ * array fails closed.
+ */
+export function parseCountries(bodyText: string): MpNationView[] | null {
+  const record = asRecord(parseJsonBody(bodyText));
+  if (!record || !Array.isArray(record.countries)) return null;
+  const nations: MpNationView[] = [];
+  for (const entry of record.countries) {
+    const item = asRecord(entry);
+    const id = item ? asTrimmedString(item.id) : null;
+    const name = item ? asTrimmedString(item.name) : null;
+    if (!item || !id || !name || !COUNTRY_ID.test(id)) return null;
+    const legislature = asRecord(item.legislature);
+    const centralBank = asRecord(item.centralBank);
+    nations.push({
+      id,
+      name,
+      flagEmoji: asTrimmedString(item.flagEmoji ?? null),
+      status: asTrimmedString(item.status ?? null),
+      enabledForPlayers: asBoolean(item.enabledForPlayers),
+      governmentType: asTrimmedString(item.governmentType ?? null),
+      governmentTypeLabel: asTrimmedString(item.governmentTypeLabel ?? null),
+      regionLabel: asTrimmedString(item.regionLabel ?? null),
+      regionLabelPlural: asTrimmedString(item.regionLabelPlural ?? null),
+      executiveTitle: asTrimmedString(item.executiveTitle ?? null),
+      legislatureName: legislature ? asTrimmedString(legislature.name ?? null) : null,
+      lowerChamberName: legislature ? asTrimmedString(legislature.lowerName ?? null) : null,
+      upperChamberName: legislature ? asTrimmedString(legislature.upperName ?? null) : null,
+      centralBankName: centralBank ? asTrimmedString(centralBank.name ?? null) : null,
+      centralBankAbbreviation: centralBank ? asTrimmedString(centralBank.abbreviation ?? null) : null,
+      exchangeName: asTrimmedString(item.exchangeName ?? null),
+    });
+  }
+  return nations;
+}
+
+/**
+ * The national headline figures from
+ * GET /api/country/[code]/overview-counts. Every figure degrades to null
+ * independently, exactly as the server counts them, so a partial answer
+ * never invents a number.
+ */
+export interface MpNationOverviewView {
+  parties: number | null;
+  politicians: number | null;
+  activeElections: number | null;
+  upcomingElections: number | null;
+  bills: number | null;
+  regions: number | null;
+  primeRate: number | null;
+  gdpMillions: number | null;
+  budgetBalancePctGdp: number | null;
+  unions: number | null;
+  activeReferendums: number | null;
+  totalReferendums: number | null;
+  /** Planned (command or dual-track) economy flag. */
+  commandEconomy: boolean | null;
+}
+
+export function parseCountryOverview(bodyText: string): MpNationOverviewView | null {
+  const record = asRecord(parseJsonBody(bodyText));
+  if (!record) return null;
+  // The route answers 400 with an error envelope for an unknown country.
+  if (asTrimmedString(record.error ?? null)) return null;
+  const count = (value: unknown) => {
+    const parsed = asNumber(value);
+    return parsed === null || parsed < 0 ? null : parsed;
+  };
+  return {
+    parties: count(record.parties),
+    politicians: count(record.politicians),
+    activeElections: count(record.activeElections),
+    upcomingElections: count(record.upcomingElections),
+    bills: count(record.bills),
+    regions: count(record.regions),
+    primeRate: asNumber(record.primeRate),
+    gdpMillions: count(record.gdpMillions),
+    budgetBalancePctGdp: asNumber(record.budgetBalancePctGdp),
+    unions: count(record.unions),
+    activeReferendums: count(record.activeReferendums),
+    totalReferendums: count(record.totalReferendums),
+    commandEconomy: asBoolean(record.commandEconomy),
+  };
+}
+
+/**
+ * One region of a nation, from GET /api/country/[code]/states.
+ */
+export interface MpRegionView {
+  id: string;
+  name: string;
+}
+
+/**
+ * country-states: the nation's regions. A malformed entry invalidates the
+ * whole projection, the way the nation directory does.
+ */
+export function parseCountryStates(bodyText: string): MpRegionView[] | null {
+  const record = asRecord(parseJsonBody(bodyText));
+  if (!record || !Array.isArray(record.states)) return null;
+  const regions: MpRegionView[] = [];
+  for (const entry of record.states) {
+    const item = asRecord(entry);
+    const id = item ? asTrimmedString(item.id) : null;
+    const name = item ? asTrimmedString(item.name) : null;
+    if (!item || !id || !name) return null;
+    regions.push({ id, name });
+  }
+  return regions;
+}
+
+/**
+ * One political party of a nation, from
+ * GET /api/country/[code]/parties.
+ */
+export interface MpNationPartyView {
+  /** Sequential party id, as the server reports it. */
+  id: string;
+  /** Mongo id of the party record. */
+  objectId: string | null;
+  name: string;
+  abbreviation: string | null;
+  memberCount: number | null;
+  playerCount: number | null;
+  nppCount: number | null;
+  chairName: string | null;
+  economicPosition: string | null;
+  socialPosition: string | null;
+  tier: string | null;
+}
+
+/**
+ * country-parties: the nation's parties. A malformed entry invalidates the
+ * whole projection, the way the nation directory does.
+ */
+export function parseCountryParties(bodyText: string): MpNationPartyView[] | null {
+  const record = asRecord(parseJsonBody(bodyText));
+  if (!record || !Array.isArray(record.parties)) return null;
+  const parties: MpNationPartyView[] = [];
+  for (const entry of record.parties) {
+    const item = asRecord(entry);
+    const id = item ? asTrimmedString(item.id) : null;
+    const name = item ? asTrimmedString(item.name) : null;
+    if (!item || !id || !name) return null;
+    const chair = asRecord(item.chair);
+    parties.push({
+      id,
+      objectId: asTrimmedString(item.objectId ?? null),
+      name,
+      abbreviation: asTrimmedString(item.abbreviation ?? null),
+      memberCount: asNumber(item.memberCount),
+      playerCount: asNumber(item.playerCount),
+      nppCount: asNumber(item.nppCount),
+      chairName: chair ? asTrimmedString(chair.name ?? null) : null,
+      economicPosition: asTrimmedString(item.economicPosition ?? null),
+      socialPosition: asTrimmedString(item.socialPosition ?? null),
+      tier: asTrimmedString(item.tier ?? null),
+    });
+  }
+  return parties;
+}
+
+/**
+ * One politician of a nation, from
+ * GET /api/country/[code]/politicians.
+ */
+export interface MpNationPoliticianView {
+  id: string;
+  name: string;
+  party: string | null;
+  partyName: string | null;
+  homeState: string | null;
+  homeStateName: string | null;
+  currentOffice: string | null;
+  officeType: string | null;
+  politicalInfluence: number | null;
+  nationalInfluence: number | null;
+  favorability: number | null;
+  isNpp: boolean | null;
+}
+
+/**
+ * country-politicians: the nation's politicians and NPPs. A malformed entry
+ * invalidates the whole projection.
+ */
+export function parseCountryPoliticians(bodyText: string): MpNationPoliticianView[] | null {
+  const record = asRecord(parseJsonBody(bodyText));
+  if (!record || !Array.isArray(record.politicians)) return null;
+  const politicians: MpNationPoliticianView[] = [];
+  for (const entry of record.politicians) {
+    const item = asRecord(entry);
+    const id = item ? asTrimmedString(item.id) : null;
+    const name = item ? asTrimmedString(item.name) : null;
+    if (!item || !id || !name) return null;
+    politicians.push({
+      id,
+      name,
+      party: asTrimmedString(item.party ?? null),
+      partyName: asTrimmedString(item.partyName ?? null),
+      homeState: asTrimmedString(item.homeState ?? null),
+      homeStateName: asTrimmedString(item.homeStateName ?? null),
+      currentOffice: asTrimmedString(item.currentOffice ?? null),
+      officeType: asTrimmedString(item.officeType ?? null),
+      politicalInfluence: asNumber(item.politicalInfluence),
+      nationalInfluence: asNumber(item.nationalInfluence),
+      favorability: asNumber(item.favorability),
+      isNpp: asBoolean(item.isNPP),
+    });
+  }
+  return politicians;
+}
+
+/**
+ * One character-search match, from GET /api/characters/search.
+ */
+export interface MpCharacterSearchResult {
+  /** 24-hex character id, the recipient the mail route takes. */
+  id: string;
+  name: string;
+  username: string | null;
+  discordUsername: string | null;
+  party: string | null;
+  homeState: string | null;
+  currentOffice: string | null;
+}
+
+/**
+ * character-search: the name matches. A malformed entry invalidates the
+ * result set rather than half-inventing a recipient list.
+ */
+export function parseCharacterSearch(bodyText: string): MpCharacterSearchResult[] | null {
+  const record = asRecord(parseJsonBody(bodyText));
+  if (!record || !Array.isArray(record.results)) return null;
+  const results: MpCharacterSearchResult[] = [];
+  for (const entry of record.results) {
+    const item = asRecord(entry);
+    const id = item ? asTrimmedString(item.id) : null;
+    const name = item ? asTrimmedString(item.name) : null;
+    if (!item || !id || !name || !HEX_OBJECT_ID.test(id)) return null;
+    results.push({
+      id,
+      name,
+      username: asTrimmedString(item.username ?? null),
+      discordUsername: asTrimmedString(item.discordUsername ?? null),
+      party: asTrimmedString(item.party ?? null),
+      homeState: asTrimmedString(item.homeState ?? null),
+      currentOffice: asTrimmedString(item.currentOffice ?? null),
+    });
+  }
+  return results;
+}
+
+/**
+ * One post of the world news feed, from GET /api/news.
+ */
+export interface MpNewsPostView {
+  id: string;
+  title: string | null;
+  content: string;
+  authorName: string | null;
+  imageUrl: string | null;
+  /** System posts are the world's own reports; player posts are articles. */
+  isSystem: boolean | null;
+  feedType: string | null;
+  replyCount: number | null;
+  createdAt: string | null;
+}
+
+/**
+ * news-feed: the world news feed. A malformed post invalidates the page
+ * rather than half-inventing a feed.
+ */
+export function parseNewsFeed(bodyText: string): MpNewsPostView[] | null {
+  const record = asRecord(parseJsonBody(bodyText));
+  if (!record || !Array.isArray(record.posts)) return null;
+  const posts: MpNewsPostView[] = [];
+  for (const entry of record.posts) {
+    const item = asRecord(entry);
+    const id = item ? asTrimmedString(item._id) : null;
+    const content = item ? asTrimmedString(item.content) : null;
+    if (!item || !id || !content) return null;
+    posts.push({
+      id,
+      title: asTrimmedString(item.title ?? null),
+      content,
+      authorName: asTrimmedString(item.authorName ?? null),
+      imageUrl: asTrimmedString(item.imageUrl ?? null),
+      isSystem: asBoolean(item.isSystem),
+      feedType: asTrimmedString(item.feedType ?? null),
+      replyCount: asNumber(item.replyCount),
+      createdAt: asTrimmedString(item.createdAt ?? null),
+    });
+  }
+  return posts;
 }
 
 /**
@@ -428,15 +916,13 @@ export interface MpElectionDetailView {
 }
 
 /**
- * election-detail: the route wraps the resolved race as { election }. The
- * summary view always carries identity, phase, and the candidates array
- * (enrichElection core data); polling and incumbent are nullable decorations
- * that degrade to null individually. Anything else fails closed.
+ * Project one resolved election (summary view) from the audited reference
+ * shape. Shared by the single-election read and the country list read, so
+ * both project the same fields from the same payload.
  */
-export function parseElectionDetail(bodyText: string): MpElectionDetailView | null {
-  const record = asRecord(parseJsonBody(bodyText));
-  const election = record ? asRecord(record.election) : null;
-  if (!election) return null;
+function projectElectionSummary(
+  election: Record<string, unknown>,
+): MpElectionDetailView | null {
   const id = asTrimmedString(election.id);
   const electionType = asTrimmedString(election.electionType);
   const countryId = asTrimmedString(election.countryId);
@@ -471,6 +957,39 @@ export function parseElectionDetail(bodyText: string): MpElectionDetailView | nu
     incumbentName: incumbent ? asTrimmedString(incumbent.name ?? null) : null,
     incumbentParty: incumbent ? asTrimmedString(incumbent.party ?? null) : null,
   };
+}
+
+/**
+ * election-detail: the route wraps the resolved race as { election }. The
+ * summary view always carries identity, phase, and the candidates array
+ * (enrichElection core data); polling and incumbent are nullable decorations
+ * that degrade to null individually. Anything else fails closed.
+ */
+export function parseElectionDetail(bodyText: string): MpElectionDetailView | null {
+  const record = asRecord(parseJsonBody(bodyText));
+  const election = record ? asRecord(record.election) : null;
+  if (!election) return null;
+  return projectElectionSummary(election);
+}
+
+/**
+ * election-list: GET /api/elections?country={code}&view=summary answers the
+ * nation's races as {elections:[...], total, page}. The list items are the
+ * same resolved summary the single-election read returns, so a malformed
+ * race invalidates the list rather than half-inventing a directory.
+ */
+export function parseElectionList(bodyText: string): MpElectionDetailView[] | null {
+  const record = asRecord(parseJsonBody(bodyText));
+  if (!record || !Array.isArray(record.elections)) return null;
+  const elections: MpElectionDetailView[] = [];
+  for (const entry of record.elections) {
+    const item = asRecord(entry);
+    if (!item) return null;
+    const election = projectElectionSummary(item);
+    if (!election) return null;
+    elections.push(election);
+  }
+  return elections;
 }
 
 /**

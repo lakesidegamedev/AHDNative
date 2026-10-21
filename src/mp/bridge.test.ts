@@ -100,7 +100,7 @@ describe("mpFetch/mpMutate", () => {
       kind: "ok",
       bodyText: '{"active":true}',
     });
-    expect(fetch).toHaveBeenCalledWith("notifications", 25, 0, undefined, undefined, undefined, undefined, undefined, undefined, undefined);
+    expect(fetch).toHaveBeenCalledWith("notifications", 25, 0, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined);
 
     const corpFetch = vi.fn(async () => '{"corporation":{}}');
     const corpHost = hostWith({ fetch: corpFetch });
@@ -108,7 +108,7 @@ describe("mpFetch/mpMutate", () => {
       kind: "ok",
       bodyText: '{"corporation":{}}',
     });
-    expect(corpFetch).toHaveBeenCalledWith("corporation-detail", undefined, undefined, undefined, "42", undefined, undefined, undefined, undefined, undefined);
+    expect(corpFetch).toHaveBeenCalledWith("corporation-detail", undefined, undefined, undefined, "42", undefined, undefined, undefined, undefined, undefined, undefined, undefined);
 
     const unionFetch = vi.fn(async () => '{"union":{}}');
     const unionHost = hostWith({ fetch: unionFetch });
@@ -129,7 +129,8 @@ describe("mpFetch/mpMutate", () => {
       undefined,
       undefined,
       undefined,
-    );
+      undefined,
+      undefined);
 
     const cabinetFetch = vi.fn(async () => '{"position":{}}');
     const cabinetHost = hostWith({ fetch: cabinetFetch });
@@ -150,7 +151,8 @@ describe("mpFetch/mpMutate", () => {
       "secretary_of_state",
       undefined,
       undefined,
-    );
+      undefined,
+      undefined);
 
     const governorFetch = vi.fn(async () => '{"officials":{}}');
     const governorHost = hostWith({ fetch: governorFetch });
@@ -171,7 +173,8 @@ describe("mpFetch/mpMutate", () => {
       undefined,
       "us",
       "CA",
-    );
+      undefined,
+      undefined);
 
     const mutate = vi.fn(async () => '{"success":true}');
     const host2 = hostWith({ mutate });

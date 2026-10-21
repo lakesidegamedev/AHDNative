@@ -28,25 +28,15 @@
  * the helper needs no separate era input.
  */
 import { addDaysIso, DAYS_PER_TURN } from "@ahdclient/engine";
+import { formatLarpDate, larpDateParts, TURNS_PER_YEAR } from "../calendar/larpCalendar";
 
-/** 48 turns per year = 12 months of exactly 4 weeks (reference calendar). */
-export const TURNS_PER_YEAR = 48;
-
-/** Month names in reference order; only ever indexed 0..11. */
-const LARP_MONTHS = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
-] as const;
+/**
+ * 48 turns per year = 12 months of exactly 4 weeks (reference calendar).
+ * The arithmetic lives in `src/calendar/larpCalendar.ts` so the multiplayer
+ * layer can project the same calendar from the server's raw turn without
+ * depending on the offline engine.
+ */
+export { TURNS_PER_YEAR };
 
 /** Minimal world clock: the current turn plus its ISO day. */
 export interface GameClock {
@@ -121,13 +111,9 @@ export function gameDateParts(
   startingYear: number
 ): { month: string; weekOfMonth: number; year: number } {
   const t = Number.isFinite(turn) && turn > 0 ? Math.floor(turn) : 0;
-  // Native turn 0 is January Week 1 (reference turn 1).
-  const turnsInYear = (t % TURNS_PER_YEAR) + 1;
-  return {
-    month: LARP_MONTHS[Math.floor((turnsInYear - 1) / 4)] ?? LARP_MONTHS[0],
-    weekOfMonth: ((turnsInYear - 1) % 4) + 1,
-    year: startingYear + Math.floor(t / TURNS_PER_YEAR),
-  };
+  // Native turn 0 is January Week 1 (reference turn 1), so the reference
+  // turn is one ahead of the Native turn.
+  return larpDateParts(t + 1, startingYear);
 }
 
 export function formatGameTurn(turn: number, clock: GameClock): string {
@@ -139,8 +125,8 @@ export function formatGameTurn(turn: number, clock: GameClock): string {
 }
 
 function formatCalendarTurn(calendarTurn: number, clock: GameClock): string {
-  const { month, weekOfMonth, year } = gameDateParts(calendarTurn, clockStartingYear(clock));
-  return `${month}, Week ${weekOfMonth}, ${year}`;
+  // Native calendar turn 0 is reference turn 1.
+  return formatLarpDate(calendarTurn + 1, clockStartingYear(clock));
 }
 
 /**

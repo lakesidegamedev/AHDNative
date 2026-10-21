@@ -3,8 +3,17 @@ import {
   parseCabinetDetail,
   parseCharacterMe,
   parseClientNav,
+  parseCharacterSearch,
+  parseClientStatus,
+  parseCountries,
+  parseCountryOverview,
+  parseCountryParties,
+  parseCountryPoliticians,
+  parseCountryStates,
   parseCorporationDetail,
   parseElectionDetail,
+  parseElectionList,
+  parseNewsFeed,
   parseExecuteResult,
   parseGovernorDetail,
   parseInbox,
@@ -27,6 +36,7 @@ import {
   validateNotificationPreference,
   validateSnoozeMinutes,
   validateUnionId,
+  isCountryCode,
   type MpCabinetDetailView,
   type MpCapabilitiesView,
   type MpCharacterView,
@@ -38,6 +48,14 @@ import {
   type MpMailSent,
   type MpPresenceView,
   type MpTurnView,
+  type MpStatusView,
+  type MpNationView,
+  type MpNationOverviewView,
+  type MpRegionView,
+  type MpNationPartyView,
+  type MpNationPoliticianView,
+  type MpNewsPostView,
+  type MpCharacterSearchResult,
   type MpUnionDetailView,
 } from "./validators";
 import type { MpMutateOpId } from "./endpoints";
@@ -94,6 +112,54 @@ export interface MpSnapshot {
    * absent) without touching phase or error state.
    */
   presence: MpPresenceView | null;
+  /**
+   * Status-bar scalars for the signed-in character (#510 footer parity).
+   * Loaded independently via loadStatus, never as part of enter/refresh:
+   * like the reference StatusBar, a failed status read keeps the last good
+   * view (or stays absent) without touching phase or error state.
+   */
+  status: MpStatusView | null;
+  /**
+   * Registered nations directory (#510 world destinations). Loaded on demand
+   * from the public /api/countries read; a failed read keeps the last good
+   * directory and never blocks the session.
+   */
+  nations: MpNationView[] | null;
+  /**
+   * Headline figures for the selected nation, from
+   * /api/country/[code]/overview-counts. Loaded on demand.
+   */
+  nationOverview: MpNationOverviewView | null;
+  /**
+   * The selected nation's regions, from /api/country/[code]/states. Loaded
+   * on demand with the nation's figures.
+   */
+  nationRegions: MpRegionView[] | null;
+  /**
+   * The selected nation's parties, from /api/country/[code]/parties.
+   */
+  nationParties: MpNationPartyView[] | null;
+  /**
+   * The selected nation's politicians, from
+   * /api/country/[code]/politicians.
+   */
+  nationPoliticians: MpNationPoliticianView[] | null;
+  /**
+   * A nation's election list, from
+   * /api/elections?country={code}&view=summary. Loaded on demand.
+   */
+  electionList: MpElectionDetailView[] | null;
+  /**
+   * The world news feed, from GET /api/news. Loaded on demand when the
+   * news destination opens.
+   */
+  newsFeed: MpNewsPostView[] | null;
+  /**
+   * Character-search matches for the mail recipient picker, from
+   * GET /api/characters/search. Loaded on demand and cleared when the
+   * query changes.
+   */
+  characterSearch: MpCharacterSearchResult[] | null;
   /** Last server-confirmed notice (action result); cleared on next load. */
   notice: string | null;
   /** Last human-readable failure; cleared when a call succeeds. */
@@ -119,12 +185,24 @@ const INITIAL_SNAPSHOT: MpSnapshot = {
   mailInbox: null,
   mailSent: null,
   presence: null,
+  status: null,
+  nations: null,
+  nationOverview: null,
+  nationRegions: null,
+  nationParties: null,
+  nationPoliticians: null,
+  electionList: null,
+  newsFeed: null,
+  characterSearch: null,
   notice: null,
   error: null,
   retryAfter: null,
 };
 
 export const MP_INBOX_LIMIT = 25;
+
+/** World news page size: the route caps a page at 50 entries. */
+export const MP_NEWS_LIMIT = 20;
 
 /**
  * Audited mail page size (#359 chat slice): the mail routes accept limit
@@ -135,9 +213,9 @@ export const MP_MAIL_LIMIT = 50;
 
 function emptyAuthed(): Pick<
   MpSnapshot,
-  "character" | "savings" | "turn" | "capabilities" | "electionDetail" | "corporationDetail" | "unionDetail" | "cabinetDetail" | "governorDetail" | "inbox" | "mailInbox" | "mailSent" | "presence"
+  "character" | "savings" | "turn" | "capabilities" | "electionDetail" | "corporationDetail" | "unionDetail" | "cabinetDetail" | "governorDetail" | "inbox" | "mailInbox" | "mailSent" | "presence" | "status" | "nations" | "nationOverview" | "nationRegions" | "nationParties" | "nationPoliticians" | "electionList" | "newsFeed" | "characterSearch"
 > {
-  return { character: null, savings: null, turn: null, capabilities: null, electionDetail: null, corporationDetail: null, unionDetail: null, cabinetDetail: null, governorDetail: null, inbox: null, mailInbox: null, mailSent: null, presence: null };
+  return { character: null, savings: null, turn: null, capabilities: null, electionDetail: null, corporationDetail: null, unionDetail: null, cabinetDetail: null, governorDetail: null, inbox: null, mailInbox: null, mailSent: null, presence: null, status: null, nations: null, nationOverview: null, nationRegions: null, nationParties: null, nationPoliticians: null, electionList: null, newsFeed: null, characterSearch: null };
 }
 
 export class MpModeSession {
@@ -439,6 +517,277 @@ export class MpModeSession {
       const presence = parsePlayersOnline(result.bodyText);
       if (!presence) return this.get();
       return this.set({ presence });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
+   * Read the latest authoritative turn without re-reading the whole
+   * authenticated projection (#510 latest-MP-turn slice). `/api/game/turn/
+   * status` is public, so this can run on the reference poller cadence while
+   * the screen is ready. Every failure (refusal, rate limit, malformed,
+   * offline, surprising 401) keeps the last good turn and leaves phase,
+   * error, drafts, and the other views untouched: the screen must never
+   * invent a turn or expire a session over a status poll. Never throws.
+   */
+  async loadTurnStatus(): Promise<MpSnapshot> {
+    if (!this.snapshot.userId || this.snapshot.phase !== "ready") return this.get();
+    try {
+      const result = await mpFetch(this.host, "turn-status");
+      if (result.kind !== "ok") return this.get();
+      const turn = parseTurnStatus(result.bodyText);
+      if (!turn) return this.get();
+      return this.set({ turn });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
+   * Read the authoritative status-bar scalars for the signed-in character
+   * (#510 footer parity). GET /api/client-status?layout=minimal is pinned by
+   * the Rust bridge, and it answers the action count, action cap, campaign
+   * funds, cash, political influence and favorability the footer shows.
+   * Like the reference StatusBar this read is independent of enter/refresh:
+   * every failure (refusal, rate limit, malformed, offline, surprising 401)
+   * keeps the last good view, never expires the session, and never invents a
+   * figure. Never throws.
+   */
+  async loadStatus(): Promise<MpSnapshot> {
+    if (!this.snapshot.userId || this.snapshot.phase !== "ready") return this.get();
+    try {
+      const result = await mpFetch(this.host, "client-status");
+      if (result.kind !== "ok") return this.get();
+      const status = parseClientStatus(result.bodyText);
+      if (!status) return this.get();
+      return this.set({ status });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
+   * Read the registered nation directory (#510 world destinations).
+   * GET /api/countries is public and answers the runtime country list with
+   * each country's identity and institutions. Loaded on demand so opening
+   * the session never pays for it; every failure keeps the last good
+   * directory and leaves the session untouched. Never throws.
+   */
+  async loadNations(): Promise<MpSnapshot> {
+    try {
+      const result = await mpFetch(this.host, "countries");
+      if (result.kind !== "ok") return this.get();
+      const nations = parseCountries(result.bodyText);
+      if (!nations) return this.get();
+      return this.set({ nations });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
+   * Read the headline figures for one nation (#510 world destinations).
+   * GET /api/country/[code]/overview-counts is public; the code is checked
+   * here and again by the Rust bridge. A failed or unknown country keeps the
+   * previous figures and never fails the session. Never throws.
+   */
+  async loadNationOverview(code: unknown): Promise<MpSnapshot> {
+    if (!isCountryCode(code)) return this.get();
+    try {
+      const result = await mpFetch(
+        this.host,
+        "country-overview",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        code,
+      );
+      if (result.kind !== "ok") return this.get();
+      const nationOverview = parseCountryOverview(result.bodyText);
+      if (!nationOverview) return this.get();
+      return this.set({ nationOverview });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
+   * Read the regions of one nation (#510 world destinations). GET
+   * /api/country/[code]/states is public; the code is checked here and
+   * again by the Rust bridge. A failed read keeps the previous regions and
+   * never fails the session. Never throws.
+   */
+  async loadCountryRegions(code: unknown): Promise<MpSnapshot> {
+    if (!isCountryCode(code)) return this.get();
+    try {
+      const result = await mpFetch(
+        this.host,
+        "country-states",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        code,
+      );
+      if (result.kind !== "ok") return this.get();
+      const nationRegions = parseCountryStates(result.bodyText);
+      if (!nationRegions) return this.get();
+      return this.set({ nationRegions });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
+   * Read the political parties of one nation (#510 world destinations). GET
+   * /api/country/[code]/parties is public; the code is checked here and
+   * again by the Rust bridge. A failed read keeps the previous list and
+   * never fails the session. Never throws.
+   */
+  async loadCountryParties(code: unknown): Promise<MpSnapshot> {
+    if (!isCountryCode(code)) return this.get();
+    try {
+      const result = await mpFetch(
+        this.host,
+        "country-parties",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        code,
+      );
+      if (result.kind !== "ok") return this.get();
+      const nationParties = parseCountryParties(result.bodyText);
+      if (!nationParties) return this.get();
+      return this.set({ nationParties });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
+   * Read the politicians of one nation (#510 world destinations). GET
+   * /api/country/[code]/politicians is public; the code is checked here and
+   * again by the Rust bridge. A failed read keeps the previous list and
+   * never fails the session. Never throws.
+   */
+  async loadCountryPoliticians(code: unknown): Promise<MpSnapshot> {
+    if (!isCountryCode(code)) return this.get();
+    try {
+      const result = await mpFetch(
+        this.host,
+        "country-politicians",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        code,
+      );
+      if (result.kind !== "ok") return this.get();
+      const nationPoliticians = parseCountryPoliticians(result.bodyText);
+      if (!nationPoliticians) return this.get();
+      return this.set({ nationPoliticians });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
+   * Search characters by name for the mail recipient picker (#510). The
+   * read is public; the fragment is validated here and again by the Rust
+   * bridge, which percent-encodes it. A failed search keeps the previous
+   * matches and never fails the session. Never throws.
+   */
+  async searchCharacters(query: string): Promise<MpSnapshot> {
+    const trimmed = typeof query === "string" ? query.trim() : "";
+    if (trimmed.length < 2 || trimmed.length > 32) return this.set({ characterSearch: null });
+    try {
+      const result = await mpFetch(
+        this.host,
+        "character-search",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        trimmed,
+      );
+      if (result.kind !== "ok") return this.get();
+      const characterSearch = parseCharacterSearch(result.bodyText);
+      if (!characterSearch) return this.get();
+      return this.set({ characterSearch });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
+   * Read the world news feed (#510 world destinations). GET /api/news is
+   * public and paged; the page size is the route's own cap. Every failure
+   * keeps the last good feed and never fails the session. Never throws.
+   */
+  async loadNewsFeed(): Promise<MpSnapshot> {
+    try {
+      const result = await mpFetch(this.host, "news-feed", MP_NEWS_LIMIT, 0);
+      if (result.kind !== "ok") return this.get();
+      const newsFeed = parseNewsFeed(result.bodyText);
+      if (!newsFeed) return this.get();
+      return this.set({ newsFeed });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
+   * Read a nation's election list (#510 world destinations). GET
+   * /api/elections?country={code}&view=summary is public with optional
+   * auth; the code is checked here and again by the Rust bridge. A failed
+   * read keeps the previous list and never fails the session. Never
+   * throws.
+   */
+  async loadElectionList(code: unknown): Promise<MpSnapshot> {
+    if (!isCountryCode(code)) return this.get();
+    try {
+      const result = await mpFetch(
+        this.host,
+        "election-list",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        code,
+      );
+      if (result.kind !== "ok") return this.get();
+      const electionList = parseElectionList(result.bodyText);
+      if (!electionList) return this.get();
+      return this.set({ electionList });
     } catch {
       return this.get();
     }

@@ -4,7 +4,9 @@ AHDGame is the behavior and visual reference. SP and MP use one native navigatio
 and presentation system, with local-engine and authoritative-server adapters.
 This inventory describes the implemented slice, not whole-game parity.
 
-Reference sources: AHDGame `e364c04954ed628beef73a993a8e9e156650a31e`,
+Reference sources: AHDGame `e35f75e3fe230e7ab4439a4f63b7269829a64f9d`
+(latest MP contract pin; the earlier presentation inventory used
+`e364c04954ed628beef73a993a8e9e156650a31e`),
 `ExperimentalMobileMenu.tsx`, `profileNavItems.ts`, `StatusBar.tsx`,
 `ProfileHeader.tsx`, and `actionsConstants.ts`. The creation Review step also
 follows `conversationSteps.ts` at `714082cdd0df50c446395febfd48cccbe2037bb9`.
@@ -35,25 +37,30 @@ quotes. MP lists its existing audited action set without claiming eligibility it
 cannot quote. MP uses the same card styles and bundled Actions artwork. This
 presentation change does not expand the server action allowlist.
 
-MP's compact footer exposes the reported turn, schedule/status, presence, AP,
-cash and unread notifications. AP opens Actions, cash opens Wallet and the inbox
-count opens Notifications. Missing values remain absent. No currency or income
-breakdown is inferred from an unqualified cash number.
+MP's compact footer exposes the same leading identity as SP (name opens
+Profile, followed by party · country), the reported turn on the shared LARP
+calendar with the Founding freeze, schedule/status, presence, AP, campaign
+funds, cash, influence, favorability and unread notifications. Each resource
+chip opens that resource's details popover, as in SP, and the popover links
+into Actions, Wallet and Profile; the inbox count opens Notifications. The resource figures come from the
+authoritative status read and refresh on the reference cadence; missing
+values remain absent. No currency or income breakdown is inferred from an
+unqualified cash number.
 
 ## Destination matrix
 
 | Destination | SP | MP | Remaining parity |
 |---|---|---|---|
-| Profile | Persisted character, standing, policy, finances and conditional sections | Shared identity plus reported AP/cash and Standing | MP full profile projection/editing; SP military/business and engine-backed omissions |
+| Profile | Persisted character, standing, policy, finances and conditional sections | Shared identity (resolved party and home-region names) plus reported AP/cash and Standing | MP full profile projection/editing; SP military/business and engine-backed omissions |
 | Actions | Categorized local commands with quotes | Categorized existing nine server actions and batch controls | Targeting journeys, complete catalog and consistent quoted eligibility |
 | Ask | Embedded panel | Embedded panel retains MP session and drafts | Physical-device sign-in return |
 | Wallet / Portfolio / Banking | Local balances, holdings and commands | Reported aggregate, campaign funds, currency balances and server savings commands | Bank selection, FX, loans, holdings and monetary-policy controls |
 | Notifications | Preview and local inbox | Server inbox and existing read/snooze/archive/preferences | MP preview and meaningful notification deep links |
-| Player mail | Not applicable to offline players | Inbox, sent, reader, reply and compose | Recipient discovery, full reference social flow |
+| Player mail | Not applicable to offline players | Inbox, sent, reader, reply and compose, with recipient search by name | The remaining reference social flow (reactions, forwarding, reporting flows) |
 | Settings | Shared device preferences | Same component | Physical-device dynamic text and transparency |
-| Help | Bundled local guide and native-safe support links | Home support guide; no dedicated MP drawer Help destination | Unified contextual help |
+| Help | Bundled local guide and native-safe support links | Drawer help group with the allowlisted guide, wiki, about and community destinations | A unified in-app contextual help surface for both modes |
 | Election/company/union/cabinet/governor detail | Existing local destination families and role gates | Existing capability-gated summary drill-ins from Standing | Full MP detail and action APIs |
-| State/Nation/World menus | Local projections, with documented gaps | No complete equivalent yet | Reference destination families and conditional actions |
+| State/Nation/World menus | Local projections, with documented gaps | Nations directory from the public world read, with each nation's headline figures, regions, parties and politicians; the nation's races from the public election list; the world news feed | World map, hall of fame, per-nation drill-ins beyond the directory and the remaining world destinations |
 
 The absence of an MP read or action is a porting gap, not permission to substitute
 SP data. Track full navigation under #510, imagery under #143, creation under

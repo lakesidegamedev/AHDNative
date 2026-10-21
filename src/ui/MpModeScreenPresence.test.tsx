@@ -152,7 +152,7 @@ describe("MpModeScreen presence failure modes at desktop widths", () => {
       mountScript({ presence: [{ reject: "remote-error:401:0:Authentication required" }] }),
     );
     expect(screen.getByRole("heading", { name: "Ada" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /Turn 12 · 1862/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Turn 12 · March, Week 4, 1862" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Session expired" })).toBeNull();
     expect(within(worldTurnCard()).queryByText(/players? online/)).toBeNull();
   });

@@ -9,9 +9,18 @@ import {
   isGovernorStateId,
   parseCabinetDetail,
   parseCharacterMe,
+  parseCharacterSearch,
   parseClientNav,
+  parseClientStatus,
+  parseCountries,
+  parseCountryOverview,
+  parseCountryParties,
+  parseCountryPoliticians,
+  parseCountryStates,
   parseCorporationDetail,
   parseElectionDetail,
+  parseElectionList,
+  parseNewsFeed,
   parseExecuteResult,
   parseGovernorDetail,
   parseInbox,
@@ -165,6 +174,15 @@ describe("parseTurnStatus", () => {
       nextScheduledTurn: "2026-09-15T16:00:00.000Z",
       paused: false,
       pauseReason: null,
+      startingYear: 1862,
+      preIterationTurns: 0,
+      preIterationActive: false,
+      pauseKind: null,
+      preset: null,
+      iterationId: null,
+      lastTurnProcessed: null,
+      lastMarketTickAt: null,
+      fastMode: false,
     });
     expect(parseTurnStatus(JSON.stringify({ currentTurn: 1, currentYear: 1860 }))).toMatchObject({
       currentTurn: 1,
@@ -173,6 +191,86 @@ describe("parseTurnStatus", () => {
     });
     expect(parseTurnStatus(JSON.stringify({ currentTurn: 1 }))).toBeNull();
     expect(parseTurnStatus(JSON.stringify({ error: "Game state not initialized" }))).toBeNull();
+  });
+
+  it("projects the latest turn-status calendar, founding and pause fields", () => {
+    const view = parseTurnStatus(
+      JSON.stringify({
+        currentTurn: 52,
+        currentYear: 1954,
+        startingYear: 1953,
+        preIterationTurns: 4,
+        preIterationActive: false,
+        preset: "1953-default",
+        isActive: true,
+        isProcessing: false,
+        nextScheduledTurn: "2026-09-17T13:00:00.000Z",
+        pausedAt: null,
+        pauseReason: null,
+        pauseKind: null,
+        iterationId: "iteration-7",
+        lastTurnProcessed: "2026-09-17T12:00:00.000Z",
+        lastMarketTickAt: "2026-09-17T12:15:00.000Z",
+        fastMode: true,
+      }),
+    );
+    expect(view).toMatchObject({
+      currentTurn: 52,
+      currentYear: 1954,
+      startingYear: 1953,
+      preIterationTurns: 4,
+      preIterationActive: false,
+      preset: "1953-default",
+      pauseKind: null,
+      iterationId: "iteration-7",
+      lastTurnProcessed: "2026-09-17T12:00:00.000Z",
+      lastMarketTickAt: "2026-09-17T12:15:00.000Z",
+      fastMode: true,
+    });
+  });
+
+  it("fails closed per field and derives the era start when the server omits it", () => {
+    const view = parseTurnStatus(
+      JSON.stringify({
+        currentTurn: 52,
+        currentYear: 1954,
+        startingYear: "1953",
+        preIterationTurns: "four",
+        preIterationActive: "yes",
+        preset: 7,
+        pauseKind: "mystery",
+        lastMarketTickAt: 7,
+        lastTurnProcessed: [],
+        iterationId: {},
+        fastMode: "true",
+      }),
+    );
+    expect(view?.startingYear).toBe(1953);
+    expect(view?.preIterationTurns).toBe(0);
+    expect(view?.preIterationActive).toBe(false);
+    expect(view?.preset).toBeNull();
+    expect(view?.pauseKind).toBeNull();
+    expect(view?.lastMarketTickAt).toBeNull();
+    expect(view?.lastTurnProcessed).toBeNull();
+    expect(view?.iterationId).toBeNull();
+    expect(view?.fastMode).toBe(false);
+  });
+
+  it("projects the auto-drift pause kind", () => {
+    const view = parseTurnStatus(
+      JSON.stringify({
+        currentTurn: 9,
+        currentYear: 1953,
+        startingYear: 1953,
+        isActive: false,
+        pausedAt: "2026-09-17T11:00:00.000Z",
+        pauseReason: "No player activity",
+        pauseKind: "auto-drift",
+      }),
+    );
+    expect(view?.paused).toBe(true);
+    expect(view?.pauseKind).toBe("auto-drift");
+    expect(view?.pauseReason).toBe("No player activity");
   });
 
   it("projects server progress and target turn, failing closed on malformed values", () => {
@@ -241,6 +339,403 @@ describe("parseInbox", () => {
   });
 });
 
+describe("parseClientStatus", () => {
+  const full = () =>
+    JSON.stringify({
+      name: "Ada",
+      avatarUrl: null,
+      actions: 3,
+      actionCap: 5,
+      hoardThreshold: 4,
+      funds: 1200,
+      campaignFundsStored: 1200,
+      cashOnHand: 5400,
+      personalHomeLiquid: 5200,
+      homeCurrency: "USD",
+      donorBaseLevel: 2,
+      politicalInfluence: 61,
+      favorability: 55,
+      currentOfficeType: null,
+    });
+
+  it("projects the footer scalars", () => {
+    expect(parseClientStatus(full())).toEqual({
+      actions: 3,
+      actionCap: 5,
+      hoardThreshold: 4,
+      funds: 1200,
+      campaignFundsStored: 1200,
+      cashOnHand: 5400,
+      personalHomeLiquid: 5200,
+      homeCurrency: "USD",
+      donorBaseLevel: 2,
+      politicalInfluence: 61,
+      favorability: 55,
+    });
+  });
+
+  it("degrades per field and never invents a figure", () => {
+    const view = parseClientStatus(
+      JSON.stringify({
+        actions: "three",
+        actionCap: 5,
+        funds: -1,
+        cashOnHand: 12.5,
+        homeCurrency: "usd",
+        politicalInfluence: null,
+      }),
+    );
+    expect(view?.actions).toBeNull();
+    expect(view?.actionCap).toBe(5);
+    expect(view?.funds).toBeNull();
+    expect(view?.cashOnHand).toBe(12.5);
+    expect(view?.homeCurrency).toBeNull();
+    expect(view?.politicalInfluence).toBeNull();
+    expect(view?.favorability).toBeNull();
+  });
+
+  it("rejects an account without a character and a body with no scalars", () => {
+    expect(parseClientStatus(JSON.stringify({ status: "no-character" }))).toBeNull();
+    expect(parseClientStatus(JSON.stringify({ name: "Ada" }))).toBeNull();
+    expect(parseClientStatus("not json")).toBeNull();
+  });
+});
+
+describe("parseCountries", () => {
+  const full = () =>
+    JSON.stringify({
+      countries: [
+        {
+          id: "US",
+          name: "United States",
+          status: "active",
+          enabledForPlayers: true,
+          flagEmoji: "🇺🇸",
+          regionLabel: "State",
+          regionLabelPlural: "States",
+          executiveTitle: "President",
+          governmentType: "presidential_republic",
+          governmentTypeLabel: "Federal presidential republic",
+          exchangeName: "New York Stock Exchange",
+          legislature: { name: "Congress", path: "/country/us/legislature", lowerName: "House", upperName: "Senate" },
+          centralBank: { name: "Federal Reserve", abbreviation: "FED" },
+        },
+      ],
+    });
+
+  it("projects the nation directory", () => {
+    expect(parseCountries(full())).toEqual([
+      {
+        id: "US",
+        name: "United States",
+        flagEmoji: "🇺🇸",
+        status: "active",
+        enabledForPlayers: true,
+        governmentType: "presidential_republic",
+        governmentTypeLabel: "Federal presidential republic",
+        regionLabel: "State",
+        regionLabelPlural: "States",
+        executiveTitle: "President",
+        legislatureName: "Congress",
+        lowerChamberName: "House",
+        upperChamberName: "Senate",
+        centralBankName: "Federal Reserve",
+        centralBankAbbreviation: "FED",
+        exchangeName: "New York Stock Exchange",
+      },
+    ]);
+  });
+
+  it("fails closed on a malformed directory", () => {
+    expect(parseCountries(JSON.stringify({ countries: [{ id: "usa", name: "United States" }] }))).toBeNull();
+    expect(parseCountries(JSON.stringify({ countries: [{ id: "US" }] }))).toBeNull();
+    expect(parseCountries(JSON.stringify({ countries: "nope" }))).toBeNull();
+    expect(parseCountries("not json")).toBeNull();
+  });
+});
+
+describe("parseCountryStates", () => {
+  it("projects the nation regions", () => {
+    expect(
+      parseCountryStates(
+        JSON.stringify({ states: [{ id: "CA", name: "California" }, { id: "NY", name: "New York" }] }),
+      ),
+    ).toEqual([
+      { id: "CA", name: "California" },
+      { id: "NY", name: "New York" },
+    ]);
+  });
+
+  it("fails closed on a malformed region list", () => {
+    expect(parseCountryStates(JSON.stringify({ states: [{ id: "CA" }] }))).toBeNull();
+    expect(parseCountryStates(JSON.stringify({ states: {} }))).toBeNull();
+    expect(parseCountryStates("not json")).toBeNull();
+  });
+});
+
+describe("parseCountryParties", () => {
+  it("projects the nation parties", () => {
+    expect(
+      parseCountryParties(
+        JSON.stringify({
+          parties: [
+            {
+              id: "12",
+              objectId: "68a000000000000000000001",
+              name: "Labour Party",
+              abbreviation: "LP",
+              chair: { id: "c1", name: "Ada" },
+              viceChair: null,
+              memberCount: 42,
+              playerCount: 30,
+              nppCount: 12,
+              economicPosition: "social",
+              socialPosition: "liberal",
+              tier: "major",
+            },
+          ],
+        }),
+      ),
+    ).toEqual([
+      {
+        id: "12",
+        objectId: "68a000000000000000000001",
+        name: "Labour Party",
+        abbreviation: "LP",
+        memberCount: 42,
+        playerCount: 30,
+        nppCount: 12,
+        chairName: "Ada",
+        economicPosition: "social",
+        socialPosition: "liberal",
+        tier: "major",
+      },
+    ]);
+  });
+
+  it("fails closed on a malformed party list", () => {
+    expect(parseCountryParties(JSON.stringify({ parties: [{ id: "12" }] }))).toBeNull();
+    expect(parseCountryParties(JSON.stringify({ parties: {} }))).toBeNull();
+    expect(parseCountryParties("not json")).toBeNull();
+  });
+});
+
+describe("parseCountryPoliticians", () => {
+  it("projects the nation politicians", () => {
+    expect(
+      parseCountryPoliticians(
+        JSON.stringify({
+          politicians: [
+            {
+              id: "p1",
+              name: "Ada",
+              party: "12",
+              partyName: "Labour Party",
+              countryId: "US",
+              homeState: "CA",
+              homeStateName: "California",
+              currentOffice: "Senator",
+              officeType: "legislative",
+              politicalInfluence: 61,
+              nationalInfluence: 40,
+              favorability: 55,
+              funds: 1000,
+              isNPP: false,
+            },
+          ],
+          total: 1,
+          playerCount: 1,
+          nppCount: 0,
+        }),
+      ),
+    ).toEqual([
+      {
+        id: "p1",
+        name: "Ada",
+        party: "12",
+        partyName: "Labour Party",
+        homeState: "CA",
+        homeStateName: "California",
+        currentOffice: "Senator",
+        officeType: "legislative",
+        politicalInfluence: 61,
+        nationalInfluence: 40,
+        favorability: 55,
+        isNpp: false,
+      },
+    ]);
+  });
+
+  it("fails closed on a malformed politician list", () => {
+    expect(parseCountryPoliticians(JSON.stringify({ politicians: [{ id: "p1" }] }))).toBeNull();
+    expect(parseCountryPoliticians(JSON.stringify({ politicians: "nope" }))).toBeNull();
+    expect(parseCountryPoliticians("not json")).toBeNull();
+  });
+});
+
+describe("parseCountryOverview", () => {
+  it("projects the headline figures and degrades the rest to null", () => {
+    expect(
+      parseCountryOverview(
+        JSON.stringify({
+          parties: 42,
+          politicians: 120,
+          activeElections: 1,
+          upcomingElections: 2,
+          bills: 87,
+          regions: 50,
+          primeRate: 4.5,
+          gdpMillions: 25000000,
+          budgetBalancePctGdp: -1.25,
+          unions: 12,
+          commandEconomy: false,
+        }),
+      ),
+    ).toMatchObject({
+      parties: 42,
+      politicians: 120,
+      activeElections: 1,
+      upcomingElections: 2,
+      bills: 87,
+      regions: 50,
+      primeRate: 4.5,
+      gdpMillions: 25000000,
+      budgetBalancePctGdp: -1.25,
+      unions: 12,
+      commandEconomy: false,
+      activeReferendums: null,
+      totalReferendums: null,
+    });
+  });
+
+  it("rejects an error envelope and a malformed body", () => {
+    expect(parseCountryOverview(JSON.stringify({ error: "Invalid country code" }))).toBeNull();
+    expect(parseCountryOverview("not json")).toBeNull();
+  });
+});
+
+describe("parseCharacterSearch", () => {
+  it("projects the name matches", () => {
+    expect(
+      parseCharacterSearch(
+        JSON.stringify({
+          results: [
+            {
+              id: "507f1f77bcf86cd799439012",
+              userId: "507f1f77bcf86cd799439099",
+              name: "Bo",
+              username: "bo",
+              discordUsername: null,
+              party: "12",
+              homeState: "CA",
+              avatarUrl: null,
+              currentOffice: "Senator",
+            },
+          ],
+        }),
+      ),
+    ).toEqual([
+      {
+        id: "507f1f77bcf86cd799439012",
+        name: "Bo",
+        username: "bo",
+        discordUsername: null,
+        party: "12",
+        homeState: "CA",
+        currentOffice: "Senator",
+      },
+    ]);
+  });
+
+  it("fails closed on a malformed match list", () => {
+    expect(parseCharacterSearch(JSON.stringify({ results: [{ id: "not-hex" }] }))).toBeNull();
+    expect(parseCharacterSearch(JSON.stringify({ results: [{ name: "Bo" }] }))).toBeNull();
+    expect(parseCharacterSearch(JSON.stringify({ results: "nope" }))).toBeNull();
+    expect(parseCharacterSearch("not json")).toBeNull();
+  });
+});
+
+describe("parseNewsFeed", () => {
+  it("projects the world news feed", () => {
+    expect(
+      parseNewsFeed(
+        JSON.stringify({
+          posts: [
+            {
+              _id: "68a000000000000000000009",
+              title: "Markets rally",
+              content: "Stocks closed higher.",
+              authorName: "Ada",
+              imageUrl: null,
+              isSystem: false,
+              feedType: "article",
+              replyCount: 3,
+              createdAt: "2026-10-20T12:00:00.000Z",
+            },
+          ],
+        }),
+      ),
+    ).toEqual([
+      {
+        id: "68a000000000000000000009",
+        title: "Markets rally",
+        content: "Stocks closed higher.",
+        authorName: "Ada",
+        imageUrl: null,
+        isSystem: false,
+        feedType: "article",
+        replyCount: 3,
+        createdAt: "2026-10-20T12:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("fails closed on a malformed feed", () => {
+    expect(parseNewsFeed(JSON.stringify({ posts: [{ _id: "x" }] }))).toBeNull();
+    expect(parseNewsFeed(JSON.stringify({ posts: "nope" }))).toBeNull();
+    expect(parseNewsFeed("not json")).toBeNull();
+  });
+});
+
+describe("parseElectionList", () => {
+  const race = {
+    id: "68a000000000000000000001",
+    seatId: "US-senate-CA-1",
+    electionType: "senate",
+    state: "CA",
+    countryId: "US",
+    cycle: 3,
+    status: "active",
+    inPrimary: false,
+    isEnded: false,
+    isUpcoming: false,
+    inGeneral: true,
+    candidates: [{ id: "c1" }],
+    polling: { leaderName: "Ada", leaderParty: "Labor" },
+    incumbent: { name: "Grace", party: "Labor" },
+  };
+
+  it("projects the nation's races", () => {
+    const list = parseElectionList(JSON.stringify({ elections: [race], total: 1, page: 1 }));
+    expect(list).toHaveLength(1);
+    expect(list?.[0]).toMatchObject({
+      id: "68a000000000000000000001",
+      electionType: "senate",
+      state: "CA",
+      status: "active",
+      candidateCount: 1,
+      leaderName: "Ada",
+      incumbentName: "Grace",
+    });
+  });
+
+  it("fails closed on a malformed list", () => {
+    expect(parseElectionList(JSON.stringify({ elections: [{ id: "x" }] }))).toBeNull();
+    expect(parseElectionList(JSON.stringify({ elections: "nope" }))).toBeNull();
+    expect(parseElectionList("not json")).toBeNull();
+  });
+});
+
 describe("parseClientNav", () => {
   const full = () =>
     JSON.stringify({
@@ -271,6 +766,11 @@ describe("parseClientNav", () => {
       characterName: "Ada",
       characterCountryId: "US",
       unreadMailCount: 2,
+      funds: 1000,
+      homeStateId: "CA",
+      homeStateName: "California",
+      currentPartyId: "3",
+      currentPartyName: "Labor",
       corporationId: 7,
       unionId: null,
       activeElectionLabel: "President — National",

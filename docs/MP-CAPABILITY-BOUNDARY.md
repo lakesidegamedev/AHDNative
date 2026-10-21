@@ -58,18 +58,56 @@ dead MP controls offline and no synthesized server state anywhere:
   rate limit, malformed, offline, surprising 401) leaves the row absent,
   never zero, and never touches phase or error state
   (`src/mp/adapter.ts`, `loadPresence` contract).
-- Live timing is projected from the server `nextScheduledTurn` at render
-  (`src/ui/MpModeScreen.tsx:496-499`), never synthesized.
-  `formatTurnCountdown` in `src/mp/validators.ts` is pinned to the reference
-  `formatRealTimeCountdown` (`AHDGame src/lib/utils/formatters.ts`, used by
-  `StatusBar.getTimeUntilNextTurn` at `StatusBar.tsx:264-272`): null schedule
-  renders no claim, a passed deadline renders `Processing...`, paused renders
-  `Paused`. The World turn card states mirror the reference
-  (`StatusBar.tsx:382-422`): `Processing: <label> [(<pct>%)]` with an
-  independent target-turn row, `Paused[: reason]`, `Live` with the countdown
-  or `Player paced` when the world has no schedule, and `Paused` for an
-  inactive world. Malformed progress hides the percent while the server
-  target still shows.
+- Live timing is projected from the latest turn-status contract and never
+  synthesized. `MpTurnView` now carries the calendar fields the reference
+  uses (`startingYear`, `preIterationTurns`, `preIterationActive`), the pause
+  classification (`pauseKind`), iteration/market metadata, and the processing
+  slice. `formatServerTurnDate` (`src/mp/turnCalendar.ts`) applies the
+  same `calendarTurn` founding freeze and preset starting year as AHDGame, so
+  the MP footer/card render `Turn N · [Founding] Month, Week N, Year` exactly
+  like the SP footer. `formatTurnCountdown` (`src/mp/validators.ts`) stays
+  pinned to `formatRealTimeCountdown` (`AHDGame src/lib/utils/formatters.ts`,
+  used by `StatusBar.getTimeUntilNextTurn`): null schedule renders no claim,
+  a passed deadline renders `Processing...`, paused renders `Paused`. The
+  World turn card states mirror the reference (`StatusBar.tsx:382-422`):
+  `Processing: <label> [(<pct>%)]` with an independent target-turn row,
+  `Paused[: reason]`, `Live` with the countdown or `Player paced` when the
+  world has no schedule, and `Paused` for an inactive world. Malformed
+  progress hides the percent while the server target still shows.
+- Latest-turn freshness: `loadTurnStatus` re-reads the public
+  `GET /api/game/turn/status` on its own cadence, outside enter/refresh, so
+  a long-open screen keeps referencing the newest server turn. The cadence
+  is pinned to `AHDGame src/hooks/useGameEvents.ts` `nextPollDelay`: 1.5s
+  while processing, 15s inside two minutes of the next turn or quarter-hour
+  market tick, 60s within ten minutes, 120s relaxed, 300s hidden, plus a
+  foreground re-poll. A newer turn triggers one full projection refresh
+  (character, capabilities, inbox), mirroring the reference turn-change
+  refetch, so AP and capabilities match the new turn. Every turn-poll failure
+  keeps the last good turn and never touches phase, error, drafts, or other
+  views (`src/mp/turnPoll.ts`, `MpModeSession.loadTurnStatus`).
+- Resource figures come from the authoritative status read
+  (`GET /api/client-status?layout=minimal`, `requireBasicAuth`). The Rust
+  bridge pins the layout and the transport allowlist accepts exactly
+  `layout=minimal` for that path, so the read stays cheap: the minimal
+  layout answers the action count, action cap, campaign funds, cash, home
+  currency, political influence and favorability the footer shows and skips
+  the corporation, election and income enrichment the wider layouts run.
+  `loadStatus` sits outside enter/refresh, so every failure keeps the last
+  good figures without touching phase or error state, and the screen
+  refreshes it on the reference cadence (60s while visible, plus a new turn
+  and foreground return).
+- World reads are public and separate from the character projection:
+  `GET /api/countries` answers the runtime nation directory,
+  `GET /api/country/[code]/overview-counts` answers one nation's headline
+  figures (parties, politicians, elections, bills, regions, GDP, budget
+  balance, unions, prime rate), `GET /api/country/[code]/states` answers
+  that nation's regions, `GET /api/country/[code]/parties` and
+  `GET /api/country/[code]/politicians` answer its parties and
+  politicians, and `GET /api/elections?country={code}&view=summary` answers
+  its races, and `GET /api/news` answers the world news feed. The Rust bridge pins the country code to a two-letter key,
+  and the adapter refuses to send anything else. All of these loads sit
+  outside enter/refresh: a failure keeps the last good view and never
+  expires the session.
 - Reconnect and session restore: mount chains enter, then on-demand mail,
   then presence; manual Refresh re-reads authoritative state and refreshes
   presence; foreground return re-probes while waiting for a session (#149).
@@ -98,7 +136,24 @@ behind it (detail panels open only after the summary load succeeds).
   desktop widths: `src/ui/MpModeScreenPresence.test.tsx`.
 - Presence shape validation and countdown formatting:
   `src/mp/validators.test.ts`, `src/mp/presence.test.ts`.
-- Endpoint contracts: `src/mp/endpoints.test.ts`.
+- Latest-MP-turn contract and freshness: `src/calendar/larpCalendarParity.test.ts`
+  (SP and MP render the same calendar), `src/mp/turnCalendar.test.ts`
+  (LARP calendar, founding freeze/offset, era-year derivation),
+  `src/mp/turnPoll.test.ts` (reference cadence), `src/mp/turnFreshness.test.ts`
+  (`loadTurnStatus` keeps the session and last good turn on every failure),
+  `src/ui/MpModeScreenTurnFreshness.test.tsx` (rendered SP-identical calendar,
+  Founding badge, identity and funds in the footer, 120s/1.5s polling,
+  background skip, foreground re-poll, turn-change refetch).
+- Status read and footer resources: `src/mp/status.test.ts`,
+  `src/ui/MpStatusFooter510.test.tsx`, and the Rust allowlist test
+  `mp_session::tests::client_status_read_pins_the_minimal_layout`.
+- World reads: `src/mp/nations.test.ts` (nation directory and nation
+  figures, including the refusal to send an invalid country code),
+  `src/ui/MpNations510.test.tsx` (rendered directory, home marker, nation
+  card, honest empty state) and the Rust path/allowlist test
+  `mp_session::tests::world_reads_resolve_to_pinned_paths`.
+- Endpoint contracts: `src/mp/endpoints.test.ts` (pinned to AHDGame
+  `e35f75e3fe230e7ab4439a4f63b7269829a64f9d`).
 - Reconnect, auth expiry, cold boot, foreground restore, mode transition,
   sign out and unlink residue: `src/mp/sessionLifecycle.test.ts`,
   `src/mp/coldBootRestore.test.ts`, `src/ui/MpModeScreenSessionRestore.test.tsx`,
@@ -115,6 +170,15 @@ behind it (detail panels open only after the summary load succeeds).
 
 - Full MP gameplay parity beyond the implemented adapter slices remains
   deferred to the later authoritative MP integration.
+- The pinned minimal status layout carries no per-turn income breakdown,
+  corporation nav, election stats or turn briefing. The MP footer therefore
+  shows the resource figures without the reference's income tooltip; the
+  wider layouts would add the reference's heavier enrichment queries, and
+  that trade is still open.
+- Turn freshness is poll-based, matching the reference status bar. The
+  reference's typed turn events (`turn_start`, `turn_complete`,
+  `market_tick`) still have no separate Native stream; polling picks the new
+  turn up within the audited windows.
 - The offline surface must stay free of dead presence, countdown, or server
   actions as destinations evolve; the regression test above is the lock.
 - MP controls are added only with a connected authoritative server adapter

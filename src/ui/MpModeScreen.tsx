@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { BottomNav, GameDrawerFrame } from "./MobileNavigation";
 import { MpModeSession, type MpSnapshot } from "../mp/adapter";
 import { tauriMpBridgeHost, type MpBridgeHost } from "../mp/bridge";
-import { isCabinetCountryCode, isCabinetPositionId, isCorporationId, isElectionId, isGovernorCountryCode, isGovernorStateId, isUnionId } from "../mp/validators";
+import { isCabinetCountryCode, isCabinetPositionId, isCorporationId, isElectionId, isGovernorCountryCode, isGovernorStateId, isUnionId, type MpCapabilitiesView, type MpCharacterView, type MpElectionDetailView, type MpNationView } from "../mp/validators";
 import { MP_EXECUTE_ACTIONS, MP_NOTIFICATION_TYPES, MP_SNOOZE_MINUTES_DEFAULT } from "../mp/endpoints";
 import { formatTurnCountdown } from "../mp/validators";
+import { turnPollDelay } from "../mp/turnPoll";
+import { formatServerTurnDate } from "../mp/turnCalendar";
 import { MpAdminScreen } from "./MpAdminScreen";
 import { ActionCategories } from "./ActionCategories";
 import { ACTION_HUB_CATEGORIES, type ActionsCategoryFilter } from "./ActionsHub";
@@ -13,6 +15,7 @@ import { ProfileIdentity } from "./ProfileIdentity";
 import { MpWalletPanel } from "./MpWalletPanel";
 import { SettingsPanel, type SettingsPanelProps } from "./SettingsPanel";
 import { installFooterClearance } from "./footerClearance";
+import { openSupportDestination, type SupportDestination } from "../online/support";
 import "./ui.css";
 
 /* Native multiplayer mode screen (#359). Renders authoritative server state
@@ -50,6 +53,11 @@ export interface MpModeScreenProps {
  * no-ops entirely without a signed-in session. */
 const PRESENCE_POLL_MS = 300_000;
 
+/* Status-bar refresh cadence (#510 footer parity): the reference StatusBar
+ * polls /api/client-status every 60s while visible, plus on a new turn and
+ * on foreground return. */
+const MP_STATUS_POLL_MS = 60_000;
+
 const IDLE: MpSnapshot = {
   phase: "idle",
   userId: null,
@@ -67,6 +75,15 @@ const IDLE: MpSnapshot = {
   mailInbox: null,
   mailSent: null,
   presence: null,
+  status: null,
+  nations: null,
+  nationOverview: null,
+  nationRegions: null,
+  nationParties: null,
+  nationPoliticians: null,
+  electionList: null,
+  newsFeed: null,
+  characterSearch: null,
   notice: null,
   error: null,
   retryAfter: null,
@@ -91,6 +108,64 @@ const MP_ACTION_CATEGORIES: Record<string, ActionsCategoryFilter> = {
   poll: "intelligence", pollLarge: "intelligence", debatePrep: "intelligence",
 };
 
+/**
+ * Resource labels for the footer details popover, mirroring the reference
+ * status bar's resource names.
+ */
+const MP_RESOURCE_LABELS: Record<string, string> = {
+  ap: "Action points",
+  funds: "Campaign funds",
+  cash: "Cash",
+  influence: "Influence",
+  favorability: "Favorability",
+};
+
+/**
+ * Party label for the multiplayer identity surfaces. The character record
+ * carries the party key (a numeric id on the live server), so the resolved
+ * name from client-nav is preferred; a legacy non-numeric key is still
+ * shown, and an unaffiliated character shows no party at all rather than a
+ * raw key.
+ */
+function profilePartyName(
+  character: MpCharacterView | null,
+  capabilities: MpCapabilitiesView | null,
+): string | null {
+  const name = capabilities?.currentPartyName ?? null;
+  if (name) return name;
+  const raw = character?.party ?? null;
+  if (!raw || raw === "independent") return null;
+  return /^\d+$/.test(raw) ? null : raw;
+}
+
+/**
+ * Home region label for the multiplayer identity surfaces: the region name
+ * from client-nav, with the character record's region key as the fallback.
+ */
+function profileHomeName(
+  character: MpCharacterView | null,
+  capabilities: MpCapabilitiesView | null,
+): string | null {
+  return capabilities?.homeStateName ?? character?.homeState ?? null;
+}
+
+/**
+ * Race label for the election list: the race type, its region when it has
+ * one, and its phase, so a row reads like the reference election list.
+ */
+function electionLabel(election: MpElectionDetailView): string {
+  const seat = election.state ? " \u2014 " + election.state : "";
+  return election.electionType + seat + " \u00b7 " + election.status;
+}
+
+/**
+ * Nation label with its flag, the way the reference nation switcher renders
+ * a country row (flag first, then the runtime name).
+ */
+function nationTitle(nation: MpNationView): string {
+  return nation.flagEmoji ? nation.flagEmoji + " " + nation.name : nation.name;
+}
+
 export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onPreferencesChange, preferencesError }: MpModeScreenProps) {
   const sessionRef = useRef<MpModeSession | null>(null);
   if (!sessionRef.current) sessionRef.current = new MpModeSession(host ?? tauriMpBridgeHost());
@@ -102,6 +177,10 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
   const footerRef = useRef<HTMLElement | null>(null);
   const [snapshot, setSnapshot] = useState<MpSnapshot>(IDLE);
   const [busy, setBusy] = useState(false);
+  /* Read by the turn poller: a turn that lands mid-action must not race a
+   * full projection refresh against the action's own refresh. */
+  const busyRef = useRef(false);
+  busyRef.current = busy;
   const [region, setRegion] = useState("");
   const [amount, setAmount] = useState("");
   const [runs, setRuns] = useState<1 | 5 | 10>(1);
@@ -114,6 +193,10 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
   const [noticeScope, setNoticeScope] = useState<"general" | "mail">("general");
   const [openMailId, setOpenMailId] = useState<string | null>(null);
   const [composeTo, setComposeTo] = useState("");
+  /* Mail recipient picker (#510): the reference lets a player find a
+   * recipient by name; multiplayer only accepted a pasted character id. */
+  const [recipientQuery, setRecipientQuery] = useState("");
+  const [recipientName, setRecipientName] = useState<string | null>(null);
   const [composeSubject, setComposeSubject] = useState("");
   const [composeBody, setComposeBody] = useState("");
   const [adminOpen, setAdminOpen] = useState(false);
@@ -132,6 +215,29 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
   /* Governor roster drill-in (#359 governor slice): same contract as the
    * election, corporation, union, and cabinet panels, one office at a time. */
   const [governorOpen, setGovernorOpen] = useState(false);
+  /* Nation directory (#510 world destinations): the runtime nation list and
+   * the selected nation's headline figures. */
+  const [nationSelected, setNationSelected] = useState<string | null>(null);
+  /* Nation directory read state: the directory loads on demand when the
+   * destination opens, and a failed read reports honestly instead of
+   * spinning forever. */
+  const [nationsLoading, setNationsLoading] = useState(false);
+  const [electionsLoading, setElectionsLoading] = useState(false);
+  const [newsLoading, setNewsLoading] = useState(false);
+  /* Resource details (#510): the reference status bar opens a popover from
+   * each resource chip with that resource's figures and links into the
+   * matching destination. Native mirrors that shape with the figures the
+   * server actually reports. */
+  const [openResource, setOpenResource] = useState<string | null>(null);
+  /* Support links (#510): the reference mobile menu carries the same
+   * guide/about/community cluster in its drawer, and Native already
+   * allowlists those destinations. */
+  const [supportError, setSupportError] = useState<string | null>(null);
+  /* Cash delta (#510): the reference chip shows the change since the last
+   * action. Native can honestly report the change since the last status
+   * read, which is the same server figure a moment later. */
+  const cashRef = useRef<number | null>(null);
+  const [cashDelta, setCashDelta] = useState<number | null>(null);
 
   useEffect(() => {
     const session = sessionRef.current!;
@@ -148,6 +254,12 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
       // Presence rides the same mount freshness without joining the
       // enter/refresh contract: a failed presence load stays absent.
       if (next.phase === "ready" && next.userId) return session.loadPresence();
+      return next;
+    }).then((next) => {
+      // Status-bar scalars (#510 footer parity) ride the same chain: a
+      // failed status read keeps the previous figures and never fails the
+      // session, exactly like the reference status bar.
+      if (next.phase === "ready" && next.userId) return session.loadStatus();
       return next;
     }).then((next) => {
       if (live) setSnapshot(next);
@@ -238,10 +350,208 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
     };
   }, []);
 
+  /* Latest-turn freshness (#510 latest-MP-turn slice). The mount chain reads
+   * turn status once, but an MP world advances on the server schedule, so a
+   * long-open screen would otherwise show a stale turn. This mirrors the
+   * reference status poller cadence (AHDGame useGameEvents.ts): 1.5s while
+   * the worker processes, 15s/60s near the next turn or market tick, 120s
+   * relaxed, 300s hidden, plus a foreground re-poll. loadTurnStatus keeps
+   * the last good turn on every failure, so this can never disturb phase,
+   * errors, drafts, or the other views. When the server reports a newer
+   * turn, the reference refetches character stats and nav; Native does the
+   * same through one full refresh so AP, inbox, and capabilities match the
+   * new turn. */
+  useEffect(() => {
+    const session = sessionRef.current!;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let polling = false;
+    let lastPollAt = 0;
+
+    const visibility = (): "visible" | "hidden" =>
+      typeof document !== "undefined" && document.visibilityState === "hidden" ? "hidden" : "visible";
+
+    const clearTimer = () => {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    };
+
+    const schedule = (delay?: number) => {
+      if (!live) return;
+      clearTimer();
+      timer = setTimeout(
+        () => {
+          void poll();
+        },
+        delay ?? turnPollDelay(session.get().turn, new Date(), visibility()),
+      );
+    };
+
+    const poll = async () => {
+      if (!live || polling) return;
+      if (visibility() === "hidden") {
+        schedule();
+        return;
+      }
+      const before = session.get();
+      if (!before.userId || before.phase !== "ready") {
+        schedule();
+        return;
+      }
+      polling = true;
+      try {
+        const next = await session.loadTurnStatus();
+        if (!live) return;
+        lastPollAt = Date.now();
+        if (next.phase === "ready" && next.userId) setSnapshot(next);
+        const turnAdvanced =
+          !!before.turn && !!next.turn && next.turn.currentTurn !== before.turn.currentTurn;
+        if (turnAdvanced && !busyRef.current) {
+          const refreshed = await withPresenceRefresh(session, session.refresh());
+          if (!live) return;
+          // The reference refetches its status payload on a new turn too:
+          // the server grants action points and campaign income there.
+          const withStatus = refreshed.phase === "ready" ? await session.loadStatus() : refreshed;
+          if (!live) return;
+          setSnapshot(withStatus);
+          schedule();
+          return;
+        }
+        schedule();
+      } finally {
+        polling = false;
+      }
+    };
+
+    const onVisibility = () => {
+      if (!live) return;
+      if (visibility() === "visible") {
+        if (Date.now() - lastPollAt > 5_000) {
+          clearTimer();
+          void poll();
+        } else {
+          schedule();
+        }
+        return;
+      }
+      schedule();
+    };
+
+    document.addEventListener("visibilitychange", onVisibility);
+    schedule();
+    return () => {
+      live = false;
+      clearTimer();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+    // Re-arm when the session phase settles: the mount chain's first
+    // turn-status read decides whether the screen is processing (1.5s) or
+    // relaxed (120s). Timers are cleared on every phase change, so this
+    // cannot stack pollers.
+  }, [snapshot.phase]);
+
+  /* Cash delta (#510): compare each authoritative status read with the
+   * previous one. The first read has no baseline, so no delta is claimed
+   * until the server reports a different figure. */
+  useEffect(() => {
+    const cash = snapshot.status?.cashOnHand ?? null;
+    if (cash === null) return;
+    const previous = cashRef.current;
+    cashRef.current = cash;
+    if (previous !== null && previous !== cash) setCashDelta(cash - previous);
+  }, [snapshot.status?.cashOnHand]);
+
+  /* World news (#510 world destinations). The feed is public and paged; it
+   * loads when the destination opens and never blocks the session. A failed
+   * read keeps the last good feed. */
+  useEffect(() => {
+    if (activeSection !== "mp-news") return;
+    const session = sessionRef.current!;
+    const current = session.get();
+    if (current.phase !== "ready" || current.newsFeed) return;
+    setNewsLoading(true);
+    void session.loadNewsFeed().then((next) => {
+      setNewsLoading(false);
+      setSnapshot(next);
+    });
+  }, [activeSection, snapshot.newsFeed]);
+
+  /* Election list (#510 world destinations). The nation's races come from
+   * the public election list read; it loads when the destination opens and
+   * never blocks the session. A failed read keeps the last good list. */
+  useEffect(() => {
+    if (activeSection !== "mp-elections") return;
+    const session = sessionRef.current!;
+    const current = session.get();
+    if (current.phase !== "ready" || current.electionList) return;
+    const country = current.character?.countryId ?? current.capabilities?.characterCountryId ?? null;
+    if (!country) return;
+    setElectionsLoading(true);
+    void session.loadElectionList(country).then((next) => {
+      setElectionsLoading(false);
+      setSnapshot(next);
+    });
+  }, [activeSection, snapshot.electionList]);
+
+  /* Nation directory (#510 world destinations). The directory read is
+   * public, so it loads when the destination opens and never blocks the
+   * session; a failed read keeps the last good directory and reports
+   * honestly. */
+  useEffect(() => {
+    if (activeSection !== "mp-nations") return;
+    const session = sessionRef.current!;
+    const current = session.get();
+    if (current.phase !== "ready" || current.nations) return;
+    setNationsLoading(true);
+    void session.loadNations().then((next) => {
+      setNationsLoading(false);
+      setSnapshot(next);
+    });
+  }, [activeSection, snapshot.nations]);
+
+  /* Open one allowlisted support destination. A refused open reports
+   * honestly instead of leaving a dead button behind. */
+  async function openSupport(destination: SupportDestination) {
+    try {
+      await openSupportDestination(destination);
+      setSupportError(null);
+    } catch {
+      setSupportError("That destination could not open. Check your connection and try again.");
+    }
+  }
+
   function runGeneral(operation: (session: MpModeSession) => Promise<MpSnapshot>) {
     setNoticeScope("general");
     void run(operation);
   }
+
+  /* Status-bar freshness (#510 footer parity). The reference StatusBar
+   * refetches /api/client-status every 60s while visible, on a new turn and
+   * on foreground return. Native mirrors that cadence: the read is public to
+   * the session, cheap in its pinned minimal layout, and every failure keeps
+   * the last good figures without touching phase, errors, or drafts. */
+  useEffect(() => {
+    const session = sessionRef.current!;
+    let live = true;
+    const pollStatus = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      void session.loadStatus().then((next) => {
+        if (live) setSnapshot(next);
+      });
+    };
+    const onVisibleStatus = () => {
+      if (document.visibilityState === "visible") pollStatus();
+    };
+    const intervalId = setInterval(pollStatus, MP_STATUS_POLL_MS);
+    document.addEventListener("visibilitychange", onVisibleStatus);
+    return () => {
+      live = false;
+      clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisibleStatus);
+    };
+  }, []);
 
   /* Standing active-election drill-in target: the live-site
    * /elections/[seatId ?? id] reference, gated on a valid election id. An
@@ -357,6 +667,29 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
     });
   }
 
+  /* The nation panel opens only once the authoritative figures are loaded;
+   * failures stay on the shared error display with the directory intact. */
+  function openNation(target: string) {
+    setNoticeScope("general");
+    void run(async (s) => {
+      const withOverview = await s.loadNationOverview(target);
+      if (!withOverview.nationOverview) return withOverview;
+      // The nation's regions, parties and politicians ride the same
+      // drill-in; a failed sibling read keeps the nation's figures.
+      const withRegions = await s.loadCountryRegions(target);
+      const withParties = await s.loadCountryParties(target);
+      return s.loadCountryPoliticians(target).then((withPoliticians) => ({
+        ...withPoliticians,
+        nationRegions: withParties.nationRegions ?? withRegions.nationRegions,
+      }));
+    }).then((next) => {
+      if (next?.nationOverview) {
+        setNationSelected(target);
+        window.setTimeout(() => jumpTo("mp-nations"), 0);
+      }
+    });
+  }
+
   /* The cabinet panel opens only once the authoritative briefing is
    * loaded; failures stay on the shared error display with Standing
    * intact. A 404 keeps the last loaded briefing, so the panel opens
@@ -409,6 +742,16 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
       /^re:/i.test(openInboxMail.subject) ? openInboxMail.subject : `Re: ${openInboxMail.subject}`,
     );
     setComposeBody("");
+  }
+
+  /* Find a mail recipient by name. The search is public and validated; a
+   * failure keeps the previous matches and never disturbs the draft. */
+  function searchRecipients() {
+    const query = recipientQuery.trim();
+    if (query.length < 2) return;
+    void sessionRef.current!.searchCharacters(query).then((next) => {
+      setSnapshot(next);
+    });
   }
 
   function sendComposedMail() {
@@ -524,6 +867,47 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
     && !snapshot.turn.isProcessing
     && !snapshot.turn.paused
     && snapshot.turn.isActive !== false;
+  /* One calendar for SP and MP (#510 latest-MP-turn slice): the shared
+   * formatter applies the same founding freeze and preset starting year as
+   * the singleplayer footer, so both modes read "Month, Week N, Year". */
+  const turnDate = snapshot.turn
+    ? formatServerTurnDate({
+        currentTurn: snapshot.turn.currentTurn,
+        startingYear: snapshot.turn.startingYear,
+        preIterationActive: snapshot.turn.preIterationActive,
+        preIterationTurns: snapshot.turn.preIterationTurns,
+      })
+    : null;
+  const nationList = snapshot.nations ?? [];
+  const selectedNation = nationSelected
+    ? nationList.find((nation) => nation.id === nationSelected) ?? null
+    : null;
+  const nationOverview = selectedNation ? snapshot.nationOverview : null;
+  const nationRegions = selectedNation ? snapshot.nationRegions : null;
+  const profileParty = profilePartyName(snapshot.character, snapshot.capabilities);
+  const profileHome = profileHomeName(snapshot.character, snapshot.capabilities);
+  const electionList = snapshot.electionList;
+  const newsFeed = snapshot.newsFeed;
+  const recipientMatches = snapshot.characterSearch ?? [];
+  const nationParties = selectedNation ? snapshot.nationParties : null;
+  const nationPoliticians = selectedNation ? snapshot.nationPoliticians : null;
+  const homeCountryId = snapshot.character?.countryId ?? snapshot.capabilities?.characterCountryId ?? null;
+  const turnFounding = snapshot.turn?.preIterationActive === true;
+  /* Footer resource parity: the SP footer reads campaign funds from the same
+   * authoritative source (client-nav `funds`); MP can therefore show the same
+   * chip instead of dropping the figure. */
+  const campaignFunds = snapshot.capabilities?.funds ?? null;
+  /* Resource figures (#510 footer parity). The authoritative status read
+   * wins over the character/nav projections because the server grants
+   * action points and campaign income on its own turn; the older reads stay
+   * as fallbacks so a status failure never blanks a chip. */
+  const statusActions = snapshot.status?.actions ?? snapshot.character?.actions ?? null;
+  const statusFunds = snapshot.status?.funds ?? campaignFunds;
+  const statusCash = snapshot.status?.cashOnHand ?? snapshot.character?.cashOnHand ?? null;
+  const statusInfluence = snapshot.status?.politicalInfluence ?? null;
+  const statusFavorability = snapshot.status?.favorability ?? null;
+  const statusCurrency = snapshot.status?.homeCurrency ?? null;
+  const moneyLabel = (value: number) => (statusCurrency ? `${value.toLocaleString("en-US")} ${statusCurrency}` : value.toLocaleString("en-US"));
 
   const visibleElection = !needsSession && electionOpen ? snapshot.electionDetail : null;
   const visibleCorporation = !needsSession && corporationOpen ? snapshot.corporationDetail : null;
@@ -567,7 +951,7 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
         <header className="ahd-mp-row ahd-mp-heading" aria-label="Multiplayer header">
           <div style={{ minWidth: 0 }}>
             <p className="ahd-eyebrow">Multiplayer</p>
-            {activeSection !== "mp-profile" && activeSection !== "mp-settings" && activeSection !== "mp-actions" && activeSection !== "mp-ask" && <h1 className="ahd-h1" id="mp-top" tabIndex={-1}>{({ "mp-profile": "Profile", "mp-actions": "Actions", "mp-wallet": "Wallet", "mp-inbox": "Notifications", "mp-mail": "Mail", "mp-settings": "Settings" } as Record<string, string>)[activeSection] ?? "Details"}</h1>}
+            {activeSection !== "mp-profile" && activeSection !== "mp-settings" && activeSection !== "mp-actions" && activeSection !== "mp-ask" && <h1 className="ahd-h1" id="mp-top" tabIndex={-1}>{({ "mp-profile": "Profile", "mp-actions": "Actions", "mp-wallet": "Wallet", "mp-inbox": "Notifications", "mp-mail": "Mail", "mp-settings": "Settings", "mp-nations": "Nations", "mp-elections": "Elections", "mp-news": "News" } as Record<string, string>)[activeSection] ?? "Details"}</h1>}
             {snapshot.username && <p className="ahd-muted" style={{ margin: 0 }}>Playing as {snapshot.username}</p>}
           </div>
         </header>
@@ -639,8 +1023,8 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
               <ProfileIdentity name={snapshot.character.name} heroImage={PROFILE_HERO_IMAGE}
                 avatarUrl={snapshot.character.avatarUrl}
                 heroAlt="Politicians meeting in a national chamber" eyebrow="Profile"
-                party={snapshot.character.party ? { name: snapshot.character.party } : null}
-                home={snapshot.character.homeState ? { label: snapshot.character.homeState } : null}
+                party={profileParty ? { name: profileParty } : null}
+                home={profileHome ? { label: profileHome } : null}
                 country={{ label: snapshot.character.countryId ?? "Country not reported" }} />
               <dl className="ahd-mp-facts">
                 {snapshot.character.actions !== null && (<><dt>Action points</dt><dd>{snapshot.character.actions}</dd></>)}
@@ -768,7 +1152,14 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
             )}
             {snapshot.turn && (
               <article className="ahd-card ahd-card-pad" aria-label="World turn">
-                <h2 className="ahd-h2">Turn {snapshot.turn.currentTurn} · {snapshot.turn.currentYear}</h2>
+                <h2 className="ahd-h2">
+                  Turn {snapshot.turn.currentTurn} ·{" "}
+                  {turnFounding ? (
+                    <span className="ahd-founding-badge" title="In-game date is frozen at the era start until the founding elections finish">Founding</span>
+                  ) : null}
+                  {turnFounding ? " " : null}
+                  {turnDate}
+                </h2>
                 <dl className="ahd-mp-facts">
                   <dt>Status</dt>
                   <dd>
@@ -975,6 +1366,166 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
           </div>
           </>
         )}
+
+        {/* News (#510 world destinations): the world news feed, read-only.
+          * The reference news page is a destination of its own; Native shows
+          * the feed without the posting or reaction actions, which the
+          * audited read does not carry. */}
+        <section id="mp-news" className="ahd-card ahd-card-pad" aria-label="News" tabIndex={-1} hidden={activeSection !== "mp-news"}>
+          <h2 className="ahd-h2">News</h2>
+          {newsFeed && newsFeed.length > 0 ? (
+            <ul className="ahd-mp-list" aria-label="World news">
+              {newsFeed.map((post) => (
+                <li key={post.id}>
+                  <strong>{post.title ?? (post.isSystem ? "World report" : "News")}</strong>
+                  <span className="ahd-muted">{" "}{post.authorName ? "- " + post.authorName : ""}</span>
+                  <p className="ahd-muted" style={{ margin: "0.2rem 0 0" }}>{post.content}</p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="ahd-muted">{newsLoading ? "Loading the news feed\u2026" : "The server did not answer with a news feed."}</p>
+          )}
+        </section>
+        <div hidden={activeSection !== "mp-news"} className="ahd-mp-row ahd-mp-back">
+          <button className="ahd-btn ahd-btn-sm ahd-btn-ghost" onClick={() => jumpTo("mp-top")}>
+            Back to Standing
+          </button>
+        </div>
+
+        {/* Elections (#510 world destinations): the player's nation's
+          * races from the public election list read, each opening the
+          * same race detail the Standing drill-in uses. */}
+        <section id="mp-elections" className="ahd-card ahd-card-pad" aria-label="Elections" tabIndex={-1} hidden={activeSection !== "mp-elections"}>
+          <h2 className="ahd-h2">Elections</h2>
+          {electionList && electionList.length > 0 ? (
+            <ul className="ahd-mp-list" aria-label="National elections">
+              {electionList.map((election) => (
+                <li key={election.id}>
+                  <button type="button" className="ahd-profile-link" onClick={() => openElection(election.id)}>
+                    {electionLabel(election)}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="ahd-muted">
+              {electionsLoading
+                ? "Loading the national races\u2026"
+                : homeCountryId
+                  ? "No open races in this nation right now."
+                  : "Your character has no nation yet."}
+            </p>
+          )}
+        </section>
+        <div hidden={activeSection !== "mp-elections"} className="ahd-mp-row ahd-mp-back">
+          <button className="ahd-btn ahd-btn-sm ahd-btn-ghost" onClick={() => jumpTo("mp-top")}>
+            Back to Standing
+          </button>
+        </div>
+
+        {/* Nations (#510 world destinations): the runtime nation directory
+          * from the public /api/countries read, with the selected nation's
+          * headline figures from /api/country/[code]/overview-counts. The
+          * directory is the same one the reference mobile menu's nation
+          * switcher renders. Every figure is the server's own; nothing is
+          * inferred for a nation the server did not report. */}
+        <section id="mp-nations" className="ahd-card ahd-card-pad" aria-label="Nations" tabIndex={-1} hidden={activeSection !== "mp-nations"}>
+          {nationSelected && selectedNation ? (
+            <>
+            <article className="ahd-stack" aria-label={"Nation: " + selectedNation.name}>
+            <h2 className="ahd-h2">{nationTitle(selectedNation)}</h2>
+            <dl className="ahd-mp-facts">
+              <dt>Government</dt><dd>{selectedNation.governmentTypeLabel ?? "Not reported"}</dd>
+              <dt>Regions</dt><dd>{selectedNation.regionLabel ?? "Not reported"}</dd>
+              <dt>Legislature</dt><dd>{selectedNation.legislatureName ?? "Not reported"}</dd>
+              {selectedNation.lowerChamberName && (<><dt>Lower chamber</dt><dd>{selectedNation.lowerChamberName}</dd></>)}
+              {selectedNation.upperChamberName && (<><dt>Upper chamber</dt><dd>{selectedNation.upperChamberName}</dd></>)}
+              <dt>Central bank</dt><dd>{selectedNation.centralBankName ?? "Not reported"}</dd>
+              {selectedNation.executiveTitle && (<><dt>Executive</dt><dd>{selectedNation.executiveTitle}</dd></>)}
+              {nationOverview && (<>
+                <dt>GDP</dt><dd>{nationOverview.gdpMillions !== null ? "$" + nationOverview.gdpMillions.toLocaleString("en-US") + "M" : "Not reported"}</dd>
+                <dt>Budget balance</dt><dd>{nationOverview.budgetBalancePctGdp !== null ? nationOverview.budgetBalancePctGdp.toFixed(1) + "% of GDP" : "Not reported"}</dd>
+                <dt>Parties</dt><dd>{nationOverview.parties ?? "Not reported"}</dd>
+                <dt>Politicians</dt><dd>{nationOverview.politicians ?? "Not reported"}</dd>
+                <dt>Elections</dt><dd>{(nationOverview.activeElections ?? "Not reported") + " active · " + (nationOverview.upcomingElections ?? "Not reported") + " upcoming"}</dd>
+                <dt>Bills</dt><dd>{nationOverview.bills ?? "Not reported"}</dd>
+                <dt>Regions</dt><dd>{nationOverview.regions ?? "Not reported"}</dd>
+                {nationOverview.unions !== null && (<><dt>Unions</dt><dd>{nationOverview.unions}</dd></>)}
+                {nationOverview.primeRate !== null && (<><dt>Prime rate</dt><dd>{nationOverview.primeRate + "%"}</dd></>)}
+              </>)}
+            </dl>
+            {nationRegions && nationRegions.length > 0 && (
+              <>
+              <h3 className="ahd-h3">{selectedNation.regionLabelPlural ?? "Regions"}</h3>
+              <ul className="ahd-mp-list" aria-label={"Regions of " + selectedNation.name}>
+                {nationRegions.map((region) => (
+                  <li key={region.id}>{region.name}</li>
+                ))}
+              </ul>
+              </>
+            )}
+            {nationParties && nationParties.length > 0 && (
+              <>
+              <h3 className="ahd-h3">Parties</h3>
+              <ul className="ahd-mp-list" aria-label={"Parties of " + selectedNation.name}>
+                {nationParties.map((party) => (
+                  <li key={party.id}>
+                    {party.name}
+                    {party.memberCount !== null ? " · " + party.memberCount + " members" : ""}
+                    {party.chairName ? " · chaired by " + party.chairName : ""}
+                  </li>
+                ))}
+              </ul>
+              </>
+            )}
+            {nationPoliticians && nationPoliticians.length > 0 && (
+              <>
+              <h3 className="ahd-h3">Politicians</h3>
+              <ul className="ahd-mp-list" aria-label={"Politicians of " + selectedNation.name}>
+                {nationPoliticians.map((politician) => (
+                  <li key={politician.id}>
+                    {politician.name}
+                    {politician.currentOffice ? " · " + politician.currentOffice : ""}
+                    {politician.partyName ? " · " + politician.partyName : ""}
+                    {politician.politicalInfluence !== null ? " · INF " + politician.politicalInfluence : ""}
+                  </li>
+                ))}
+              </ul>
+              </>
+            )}
+            </article>
+            </>
+          ) : (
+            <>
+            <h2 className="ahd-h2">Nations</h2>
+            {nationList.length > 0 ? (
+              <ul className="ahd-mp-list" aria-label="Registered nations">
+                {nationList.map((nation) => (
+                  <li key={nation.id}>
+                    <button type="button" className="ahd-profile-link" onClick={() => openNation(nation.id)}>
+                      {nationTitle(nation)}{nation.id === homeCountryId ? " · Home" : ""}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="ahd-muted">{nationsLoading ? "Loading the nation directory…" : "The server did not answer with a nation directory."}</p>
+            )}
+            </>
+          )}
+        </section>
+        <div hidden={activeSection !== "mp-nations"} className="ahd-mp-row ahd-mp-back">
+          <button
+            className="ahd-btn ahd-btn-sm ahd-btn-ghost"
+            onClick={() => {
+              setNationSelected(null);
+              jumpTo("mp-top");
+            }}
+          >
+            {nationSelected ? "Back to nations" : "Back to Standing"}
+          </button>
+        </div>
 
         {snapshot.character && (
           <>
@@ -1294,8 +1845,49 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
             )}
             <h3 className="ahd-h2">Compose</h3>
             <p className="ahd-muted" style={{ marginTop: 0 }}>
-              Send player mail with a pasted 24-character recipient character ID.
+              Find a player by name, or paste a 24-character recipient character ID.
             </p>
+            <div className="ahd-mp-row">
+              <label className="ahd-field ahd-mp-input">
+                <span className="ahd-label">Find a player</span>
+                <input
+                  value={recipientQuery}
+                  disabled={busy}
+                  placeholder="Name to search for"
+                  onChange={(event) => setRecipientQuery(event.currentTarget.value)}
+                />
+              </label>
+              <button
+                className="ahd-btn ahd-btn-sm"
+                disabled={busy || recipientQuery.trim().length < 2}
+                onClick={() => { searchRecipients(); }}
+              >
+                Search
+              </button>
+            </div>
+            {recipientMatches.length > 0 && (
+              <ul className="ahd-mp-list" aria-label="Player matches">
+                {recipientMatches.map((match) => (
+                  <li key={match.id}>
+                    <button
+                      type="button"
+                      className="ahd-profile-link"
+                      onClick={() => {
+                        setComposeTo(match.id);
+                        setRecipientName(match.name);
+                        setRecipientQuery("");
+                        setSnapshot((current) => ({ ...current, characterSearch: null }));
+                      }}
+                    >
+                      {match.name}
+                      {match.currentOffice ? " \u00b7 " + match.currentOffice : ""}
+                      {match.homeState ? " \u00b7 " + match.homeState : ""}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {recipientName ? <p className="ahd-muted">To: {recipientName}</p> : null}
             <div className="ahd-mp-row">
               <label className="ahd-field ahd-mp-input">
                 <span className="ahd-label">Recipient character ID</span>
@@ -1405,6 +1997,39 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
           </nav>
         )}
 
+          {/* World destinations (#510): the nation directory is a world
+              read, not a character surface, so it stays reachable even
+              before a character exists. */}
+          <nav className="ahd-drawer-nav" aria-label="Multiplayer world">
+            <span className="ahd-label">World</span>
+            <button className="ahd-drawer-item" aria-current={activeSection === "mp-nations" ? "page" : undefined} data-active={activeSection === "mp-nations" ? "true" : undefined} onClick={() => navigateFromMenu("mp-nations")}>
+              Nations
+            </button>
+            <button className="ahd-drawer-item" aria-current={activeSection === "mp-elections" ? "page" : undefined} data-active={activeSection === "mp-elections" ? "true" : undefined} onClick={() => navigateFromMenu("mp-elections")}>
+              Elections
+            </button>
+            <button className="ahd-drawer-item" aria-current={activeSection === "mp-news" ? "page" : undefined} data-active={activeSection === "mp-news" ? "true" : undefined} onClick={() => navigateFromMenu("mp-news")}>
+              News
+            </button>
+          </nav>
+
+          {/* Support links (#510): the reference mobile menu keeps the
+              guide, about and community cluster in the drawer. These are the
+              same allowlisted destinations the offline Help panel opens. */}
+          <nav className="ahd-drawer-nav" aria-label="Multiplayer support">
+            <span className="ahd-label">Help</span>
+            {(["guides", "wiki", "about", "discord"] as SupportDestination[]).map((destination) => (
+              <button
+                key={destination}
+                className="ahd-drawer-item"
+                onClick={() => { void openSupport(destination); }}
+              >
+                {destination === "guides" ? "Game guides" : destination === "wiki" ? "Wiki" : destination === "about" ? "About" : "Discord"}
+              </button>
+            ))}
+            {supportError ? <p role="alert" className="ahd-alert" style={{ margin: 0 }}>{supportError}</p> : null}
+          </nav>
+
           <div className="ahd-drawer-controls">
             <button className="ahd-btn ahd-btn-sm" disabled={busy} onClick={() => { setMenuOpen(false); void runGeneral((s) => withPresenceRefresh(s, s.refresh())); }}>
               Refresh
@@ -1427,17 +2052,53 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
       <footer ref={footerRef} className="ahd-footer ahd-mp-footer" aria-label="Multiplayer navigation">
         <div className="ahd-container ahd-footer-inner">
           {snapshot.turn && <div className="ahd-statusline" aria-label="World status">
-            <span className="ahd-mono">Turn {snapshot.turn.currentTurn}</span>
-            <span>{snapshot.turn.currentYear}</span>
+            {/* Reference status bar leads with the character identity
+                (AHDGame StatusBar.tsx:345-350): the name links to Profile,
+                followed by party · country. SP already renders this block;
+                MP had the same data but dropped it, leaving the two footers
+                different at the same width. */}
+            {snapshot.character && (
+              <span className="ahd-status-identity">
+                <button
+                  type="button"
+                  className="ahd-status-identity-name"
+                  aria-label={`Profile: ${snapshot.character.name}`}
+                  title="View profile"
+                  onClick={() => jumpTo("mp-profile")}
+                >
+                  {snapshot.character.name}
+                </button>
+                <span className="ahd-muted ahd-status-identity-context">
+                  {profileParty ?? "Independent"} · {snapshot.character.countryId ?? "Unknown"}
+                </span>
+              </span>
+            )}
+            <span className="ahd-mono">
+              Turn {snapshot.turn.currentTurn} ·{" "}
+              {turnFounding ? (
+                <span className="ahd-founding-badge" title="In-game date is frozen at the era start until the founding elections finish">Founding</span>
+              ) : null}
+              {turnFounding ? " " : null}
+              {turnDate}
+            </span>
             <span className="ahd-muted ahd-statusline-text">{snapshot.turn.isProcessing ? "Processing" : snapshot.turn.paused || snapshot.turn.isActive === false ? "Paused" : turnCountdown ?? "Player paced"}</span>
             {snapshot.presence && <span className="ahd-muted">{snapshot.presence.online} online</span>}
           </div>}
           {snapshot.character && <div className="ahd-status-resources ahd-mp-resources" role="group" aria-label="Resources">
-            {snapshot.character.actions !== null && <button type="button" className="ahd-status-btn" aria-label={`Action points: ${snapshot.character.actions}`} onClick={() => jumpTo("mp-actions")}>
-              <span className="ahd-status-btn-label">AP</span><span className="ahd-mono ahd-status-btn-value">{snapshot.character.actions}</span>
+            {statusActions !== null && <button type="button" className="ahd-status-btn" aria-label={`Action points: ${statusActions}`} aria-expanded={openResource === "ap"} aria-controls={openResource === "ap" ? "ahd-mp-resource-ap" : undefined} title={snapshot.status?.actionCap !== null && snapshot.status?.actionCap !== undefined ? `Action cap: ${snapshot.status.actionCap}` : undefined} onClick={() => setOpenResource(openResource === "ap" ? null : "ap")}>
+              <span className="ahd-status-btn-label">AP</span><span className="ahd-mono ahd-status-btn-value">{statusActions}</span>
             </button>}
-            {snapshot.character.cashOnHand !== null && <button type="button" className="ahd-status-btn" aria-label={`Cash on hand: ${snapshot.character.cashOnHand.toLocaleString("en-US")}`} onClick={() => jumpTo("mp-wallet")}>
-              <span className="ahd-status-btn-label">Cash</span><span className="ahd-mono ahd-status-btn-value">{snapshot.character.cashOnHand.toLocaleString("en-US", { notation: "compact" })}</span>
+            {statusFunds !== null && <button type="button" className="ahd-status-btn" aria-label={`Campaign funds: ${moneyLabel(statusFunds)}`} aria-expanded={openResource === "funds"} aria-controls={openResource === "funds" ? "ahd-mp-resource-funds" : undefined} onClick={() => setOpenResource(openResource === "funds" ? null : "funds")}>
+              <span className="ahd-status-btn-label">Funds</span><span className="ahd-mono ahd-status-btn-value">{statusFunds.toLocaleString("en-US", { notation: "compact" })}</span>
+            </button>}
+            {statusCash !== null && <button type="button" className="ahd-status-btn" aria-label={`Cash on hand: ${moneyLabel(statusCash)}`} aria-expanded={openResource === "cash"} aria-controls={openResource === "cash" ? "ahd-mp-resource-cash" : undefined} onClick={() => setOpenResource(openResource === "cash" ? null : "cash")}>
+              <span className="ahd-status-btn-label">Cash</span><span className="ahd-mono ahd-status-btn-value">{statusCash.toLocaleString("en-US", { notation: "compact" })}</span>
+            </button>}
+            {statusInfluence !== null && <button type="button" className="ahd-status-btn" aria-label={`Influence: ${statusInfluence}`} aria-expanded={openResource === "influence"} aria-controls={openResource === "influence" ? "ahd-mp-resource-influence" : undefined} onClick={() => setOpenResource(openResource === "influence" ? null : "influence")}>
+              <span className="ahd-status-btn-label">INF</span><span className="ahd-mono ahd-status-btn-value">{statusInfluence}</span>
+            </button>}
+            {statusFavorability !== null && <button type="button" className="ahd-status-btn" aria-label={`Favorability: ${statusFavorability}`} aria-expanded={openResource === "favorability"} aria-controls={openResource === "favorability" ? "ahd-mp-resource-favorability" : undefined} onClick={() => setOpenResource(openResource === "favorability" ? null : "favorability")}>
+              <span className="ahd-status-btn-label">FAV</span><span className="ahd-mono ahd-status-btn-value">{statusFavorability}</span>
             </button>}
             {snapshot.inbox && <button type="button" className="ahd-status-btn" aria-label={`Notifications: ${snapshot.inbox.unreadCount} unread`} onClick={() => jumpTo("mp-inbox")}>
               <span className="ahd-status-btn-label">Inbox</span><span className="ahd-mono ahd-status-btn-value">{snapshot.inbox.unreadCount}</span>
@@ -1447,8 +2108,84 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
             menuOpen={menuOpen} menuButtonRef={menuButtonRef}
             disabledTabs={onAsk || askContent ? [] : ["ask"]}
             onNavigate={(next) => next === "ask" && !askContent ? onAsk?.() : jumpTo(`mp-${next}`)}
-            onOpenMenu={() => setMenuOpen(true)} />
+            onOpenMenu={() => { setOpenResource(null); setMenuOpen(true); }} />
         </div>
+        {/* Resource details (#510): the reference status bar opens a popover
+          * from each resource chip with that resource's figures and links
+          * into the matching destination. Native shows only the figures the
+          * server reported, and a link to the destination that owns them. */}
+        {openResource ? (
+          <div
+            role="dialog"
+            aria-modal="false"
+            aria-label={`${MP_RESOURCE_LABELS[openResource] ?? "Resource"} details`}
+            id={`ahd-mp-resource-${openResource}`}
+            tabIndex={-1}
+            className="ahd-container ahd-resource-popover"
+            onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setOpenResource(null); } }}
+            style={{ outline: "none" }}
+          >
+            <div className="ahd-resource-details">
+              <div className="ahd-resource-facts">
+                {openResource === "ap" ? (
+                  <span>
+                    Action points: {statusActions}.
+                    {snapshot.status?.actionCap !== null && snapshot.status?.actionCap !== undefined
+                      ? " Per-turn cap: " + snapshot.status.actionCap + "."
+                      : ""}
+                    {snapshot.status?.hoardThreshold !== null && snapshot.status?.hoardThreshold !== undefined
+                      ? " Hoarding threshold: " + snapshot.status.hoardThreshold + "."
+                      : ""}
+                  </span>
+                ) : null}
+                {openResource === "funds" ? (
+                  <span>
+                    Campaign funds: {statusFunds === null ? "not reported" : moneyLabel(statusFunds)}.
+                    {snapshot.status?.campaignFundsStored !== null && snapshot.status?.campaignFundsStored !== undefined
+                      ? " Stored balance: " + moneyLabel(snapshot.status.campaignFundsStored) + "."
+                      : ""}
+                  </span>
+                ) : null}
+                {openResource === "cash" ? (
+                  <span>
+                    Cash on hand: {statusCash === null ? "not reported" : moneyLabel(statusCash)}.
+                    {snapshot.status?.personalHomeLiquid !== null && snapshot.status?.personalHomeLiquid !== undefined
+                      ? " Liquid home cash: " + moneyLabel(snapshot.status.personalHomeLiquid) + "."
+                      : ""}
+                    {cashDelta !== null && cashDelta !== 0
+                      ? " Since the last read: " + (cashDelta > 0 ? "+" : "\u2212") + Math.abs(cashDelta).toLocaleString("en-US") + "."
+                      : ""}
+                  </span>
+                ) : null}
+                {openResource === "influence" ? (
+                  <span>
+                    Influence: {statusInfluence === null ? "not reported" : statusInfluence}.
+                    {snapshot.status?.donorBaseLevel !== null && snapshot.status?.donorBaseLevel !== undefined
+                      ? " Donor base: " + snapshot.status.donorBaseLevel + "."
+                      : ""}
+                  </span>
+                ) : null}
+                {openResource === "favorability" ? (
+                  <span>Favorability: {statusFavorability === null ? "not reported" : statusFavorability}.</span>
+                ) : null}
+              </div>
+              <div className="ahd-resource-links">
+                <button type="button" className="ahd-btn ahd-btn-sm" onClick={() => { setOpenResource(null); jumpTo("mp-actions"); }}>
+                  Go to Actions
+                </button>
+                <button type="button" className="ahd-btn ahd-btn-sm" onClick={() => { setOpenResource(null); jumpTo("mp-wallet"); }}>
+                  Go to Wallet
+                </button>
+                <button type="button" className="ahd-btn ahd-btn-sm" onClick={() => { setOpenResource(null); jumpTo("mp-profile"); }}>
+                  Go to Profile
+                </button>
+                <button type="button" className="ahd-btn ahd-btn-sm ahd-btn-ghost" onClick={() => setOpenResource(null)} aria-label="Close details">
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </footer>
     </main>
   );

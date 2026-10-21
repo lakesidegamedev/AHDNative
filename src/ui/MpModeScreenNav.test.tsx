@@ -106,10 +106,16 @@ describe.each([320, 390])("MP footer navigation at %spx", (width) => {
     const user = userEvent.setup();
     await renderReady(width);
     const footer = within(screen.getByRole("contentinfo", { name: "Multiplayer navigation" }));
-    expect(footer.getByText("Turn 12")).toBeVisible();
+    expect(footer.getByLabelText("World status").textContent).toContain("Turn 12 · March, Week 4, 1862");
+    // A resource chip opens that resource's details, and the details link
+    // into the destination that owns the figure (#510 resource details).
     await user.click(footer.getByRole("button", { name: "Cash on hand: 1,000" }));
+    const cashDetails = screen.getByRole("dialog", { name: "Cash details" });
+    await user.click(within(cashDetails).getByRole("button", { name: "Go to Wallet" }));
     expect(screen.getByRole("region", { name: "Wallet" })).toBeVisible();
     await user.click(footer.getByRole("button", { name: "Action points: 3" }));
+    const actionDetails = screen.getByRole("dialog", { name: "Action points details" });
+    await user.click(within(actionDetails).getByRole("button", { name: "Go to Actions" }));
     expect(screen.getByRole("region", { name: "Player actions" })).toBeVisible();
   });
 

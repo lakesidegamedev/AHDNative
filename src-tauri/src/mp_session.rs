@@ -105,6 +105,13 @@ pub enum MpFetchOp {
     SavingsAccounts,
     /// Navbar essentials; guest data when signed out.
     ClientNav,
+    /// Status-bar scalars for the signed-in character; GET
+    /// /api/client-status?layout=minimal (requireBasicAuth, 401 signed
+    /// out). The minimal layout is pinned on purpose: it answers the
+    /// action count, action cap, campaign funds, cash, political
+    /// influence and favorability the footer shows, and skips the
+    /// corporation/election/income enrichment the wider layouts run.
+    ClientStatus,
     /// Turn/year/processing/countdown; public but fresher via the session.
     TurnStatus,
     /// Players active within the last hour; public, no session required.
@@ -157,6 +164,37 @@ pub enum MpFetchOp {
     /// `governorOffice.stateId` (like CA/SN); see
     /// [`is_governor_country_code`] and [`is_governor_state_id`].
     GovernorDetail,
+    /// Registered nations directory; GET /api/countries (public, no auth,
+    /// no query). Answers the runtime country list with each country's
+    /// identity and institutions.
+    Countries,
+    /// National overview counts; GET
+    /// /api/country/[code]/overview-counts (public, no auth, 400 on an
+    /// invalid country). The country code is a two-letter COUNTRY_CONFIGS
+    /// key like US/UK/DE/JP/CN; see [`is_country_code`].
+    CountryOverview,
+    /// The nation's regions; GET /api/country/[code]/states (public, no
+    /// auth, 400 on an invalid country). The country code is a two-letter
+    /// COUNTRY_CONFIGS key; see [`is_country_code`].
+    CountryStates,
+    /// The nation's political parties; GET /api/country/[code]/parties
+    /// (public, no auth, 400 on an invalid country).
+    CountryParties,
+    /// The nation's politicians; GET /api/country/[code]/politicians
+    /// (public, no auth, 400 on an invalid country).
+    CountryPoliticians,
+    /// A nation's election list; GET /api/elections?country={code}&view=
+    /// summary (public with optional auth, 400 on an invalid country).
+    /// The country code is a two-letter COUNTRY_CONFIGS key; see
+    /// [`is_country_code`].
+    ElectionList,
+    /// The world news feed; GET /api/news?limit={limit}&offset={offset}
+    /// (public, no auth). The pagination mirrors the other paged reads.
+    NewsFeed,
+    /// Character search by name; GET /api/characters/search?q={query}&
+    /// limit=10 (public, no auth). The query is a plain name fragment,
+    /// validated and percent-encoded by the bridge.
+    CharacterSearch,
 }
 
 impl MpFetchOp {
@@ -166,6 +204,7 @@ impl MpFetchOp {
             "character-me" => Some(Self::CharacterMe),
             "savings-accounts" => Some(Self::SavingsAccounts),
             "client-nav" => Some(Self::ClientNav),
+            "client-status" => Some(Self::ClientStatus),
             "turn-status" => Some(Self::TurnStatus),
             "players-online" => Some(Self::PlayersOnline),
             "game-time" => Some(Self::GameTime),
@@ -178,6 +217,14 @@ impl MpFetchOp {
             "union-detail" => Some(Self::UnionDetail),
             "cabinet-detail" => Some(Self::CabinetDetail),
             "governor-detail" => Some(Self::GovernorDetail),
+            "countries" => Some(Self::Countries),
+            "country-overview" => Some(Self::CountryOverview),
+            "country-states" => Some(Self::CountryStates),
+            "country-parties" => Some(Self::CountryParties),
+            "country-politicians" => Some(Self::CountryPoliticians),
+            "election-list" => Some(Self::ElectionList),
+            "news-feed" => Some(Self::NewsFeed),
+            "character-search" => Some(Self::CharacterSearch),
             _ => None,
         }
     }
@@ -188,6 +235,7 @@ impl MpFetchOp {
             Self::CharacterMe => "/api/character/me",
             Self::SavingsAccounts => "/api/character/savings",
             Self::ClientNav => "/api/client-nav",
+            Self::ClientStatus => "/api/client-status",
             Self::TurnStatus => "/api/game/turn/status",
             Self::PlayersOnline => "/api/players/online",
             Self::GameTime => "/api/game-time",
@@ -200,6 +248,14 @@ impl MpFetchOp {
             Self::UnionDetail => "/api/unions",
             Self::CabinetDetail => "/api/country",
             Self::GovernorDetail => "/api/country",
+            Self::Countries => "/api/countries",
+            Self::CountryOverview => "/api/country",
+            Self::CountryStates => "/api/country",
+            Self::CountryParties => "/api/country",
+            Self::CountryPoliticians => "/api/country",
+            Self::ElectionList => "/api/elections",
+            Self::NewsFeed => "/api/news",
+            Self::CharacterSearch => "/api/characters/search",
         }
     }
 }
@@ -556,6 +612,26 @@ fn fetch_path_and_query(
     offset: Option<u32>,
 ) -> Result<String, String> {
     match op {
+        MpFetchOp::ClientStatus => {
+            if limit.is_some() || offset.is_some() {
+                return Err(error::UNSUPPORTED_OP.to_string());
+            }
+            // The layout is pinned, never caller-supplied: the minimal
+            // layout answers the footer scalars without the wide
+            // enrichment queries.
+            Ok(format!("{}?layout=minimal", op.path()))
+        }
+        MpFetchOp::NewsFeed => {
+            let limit = limit.ok_or_else(|| error::BAD_ARG.to_string())?;
+            if !(1..=50).contains(&limit) {
+                return Err(error::BAD_ARG.to_string());
+            }
+            let offset = offset.unwrap_or(0);
+            if offset > 100_000 {
+                return Err(error::BAD_ARG.to_string());
+            }
+            Ok(format!("{}?limit={limit}&offset={offset}", op.path()))
+        }
         MpFetchOp::Notifications | MpFetchOp::MailInbox | MpFetchOp::MailSent => {
             let limit = limit.ok_or_else(|| error::BAD_ARG.to_string())?;
             if !(1..=50).contains(&limit) {
@@ -636,6 +712,106 @@ fn fetch_union_path(union_id: &str) -> Result<String, String> {
         return Err(error::BAD_ARG.to_string());
     }
     Ok(format!("{}/{}", MpFetchOp::UnionDetail.path(), union_id))
+}
+
+/// Nation overview country key: a two-letter COUNTRY_CONFIGS key like
+/// US/UK/DE/JP/CN (the route uppercases before lookup). Two ASCII letters,
+/// any case; the builder uppercases so the pinned path is canonical.
+fn is_country_code(value: &str) -> bool {
+    value.len() == 2 && value.bytes().all(|byte| byte.is_ascii_alphabetic())
+}
+
+/// Build the exact national overview request path from a validated country
+/// key. The code is a path segment (never a query pair) and carries no
+/// pagination.
+fn fetch_country_overview_path(country_code: &str) -> Result<String, String> {
+    if !is_country_code(country_code) {
+        return Err(error::BAD_ARG.to_string());
+    }
+    Ok(format!(
+        "{}/{}/overview-counts",
+        MpFetchOp::CountryOverview.path(),
+        country_code.to_ascii_uppercase()
+    ))
+}
+
+/// True for the pinned national overview path shape.
+fn is_country_overview_path(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/country/") else {
+        return false;
+    };
+    let Some(code) = rest.strip_suffix("/overview-counts") else {
+        return false;
+    };
+    is_country_code(code)
+}
+
+/// Build the exact nation regions request path from a validated country key.
+fn fetch_country_states_path(country_code: &str) -> Result<String, String> {
+    if !is_country_code(country_code) {
+        return Err(error::BAD_ARG.to_string());
+    }
+    Ok(format!(
+        "{}/{}/states",
+        MpFetchOp::CountryStates.path(),
+        country_code.to_ascii_uppercase()
+    ))
+}
+
+/// Build the exact nation parties request path from a validated country key.
+fn fetch_country_parties_path(country_code: &str) -> Result<String, String> {
+    if !is_country_code(country_code) {
+        return Err(error::BAD_ARG.to_string());
+    }
+    Ok(format!(
+        "{}/{}/parties",
+        MpFetchOp::CountryParties.path(),
+        country_code.to_ascii_uppercase()
+    ))
+}
+
+/// Build the exact nation politicians request path from a validated country
+/// key.
+fn fetch_country_politicians_path(country_code: &str) -> Result<String, String> {
+    if !is_country_code(country_code) {
+        return Err(error::BAD_ARG.to_string());
+    }
+    Ok(format!(
+        "{}/{}/politicians",
+        MpFetchOp::CountryPoliticians.path(),
+        country_code.to_ascii_uppercase()
+    ))
+}
+
+/// True for the pinned nation regions path shape.
+fn is_country_states_path(path: &str) -> bool {
+    is_country_suffix_path(path, "states")
+}
+
+/// True for the pinned nation parties path shape.
+fn is_country_parties_path(path: &str) -> bool {
+    is_country_suffix_path(path, "parties")
+}
+
+/// True for the pinned nation politicians path shape.
+fn is_country_politicians_path(path: &str) -> bool {
+    is_country_suffix_path(path, "politicians")
+}
+
+/// Shared shape check for the country-scoped reads: a two-letter country key
+/// followed by the pinned trailing segment.
+fn is_country_suffix_path(path: &str, suffix: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/country/") else {
+        return false;
+    };
+    let Some(code) = rest.strip_suffix(suffix) else {
+        return false;
+    };
+    // The suffix must be the whole trailing segment, not a prefix of one.
+    let Some(code) = code.strip_suffix('/') else {
+        return false;
+    };
+    is_country_code(code)
 }
 
 /// Cabinet briefing country key: the client-nav `cabinetOffice.countryCode`
@@ -1006,6 +1182,99 @@ fn is_election_query(query: &str) -> bool {
     id_ok && view_ok
 }
 
+/// Character search fragment: two to thirty-two ASCII letters, digits,
+/// spaces, hyphens or underscores. The reference route ignores anything
+/// shorter than two characters, and the bridge never forwards raw query
+/// text.
+fn is_character_search_query(value: &str) -> bool {
+    let length = value.chars().count();
+    (2..=32).contains(&length)
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '-' || c == '_')
+}
+
+/// Build the exact character search request path from a validated name
+/// fragment. Spaces are percent-encoded; nothing else can reach the path.
+fn fetch_character_search_path(query: &str) -> Result<String, String> {
+    if !is_character_search_query(query) {
+        return Err(error::BAD_ARG.to_string());
+    }
+    Ok(format!(
+        "{}?q={}&limit=10",
+        MpFetchOp::CharacterSearch.path(),
+        query.replace(' ', "%20")
+    ))
+}
+
+/// True for the pinned character search query shape.
+fn is_character_search_pair(query: &str) -> bool {
+    let mut q_ok = false;
+    let mut limit_ok = false;
+    for pair in query.split('&') {
+        let (key, value) = pair.split_once('=').unwrap_or(("", ""));
+        match key {
+            "q" => {
+                if q_ok {
+                    return false;
+                }
+                let decoded = value.replace("%20", " ");
+                if !is_character_search_query(&decoded) {
+                    return false;
+                }
+                q_ok = true;
+            }
+            "limit" => {
+                if limit_ok || value != "10" {
+                    return false;
+                }
+                limit_ok = true;
+            }
+            _ => return false,
+        }
+    }
+    q_ok && limit_ok
+}
+
+/// Election list query: exactly `country=<validated country key>&view=
+/// summary`. The country key is uppercased by the builder, so the check
+/// accepts either case and rejects anything that is not a two-letter key.
+fn is_election_list_query(query: &str) -> bool {
+    let mut country_ok = false;
+    let mut view_ok = false;
+    for pair in query.split('&') {
+        let (key, value) = pair.split_once('=').unwrap_or(("", ""));
+        match key {
+            "country" => {
+                if country_ok || !is_country_code(&value.to_ascii_uppercase()) {
+                    return false;
+                }
+                country_ok = true;
+            }
+            "view" => {
+                if view_ok || value != "summary" {
+                    return false;
+                }
+                view_ok = true;
+            }
+            _ => return false,
+        }
+    }
+    country_ok && view_ok
+}
+
+/// Build the exact election list request path from a validated country key.
+fn fetch_election_list_path(country_code: &str) -> Result<String, String> {
+    if !is_country_code(country_code) {
+        return Err(error::BAD_ARG.to_string());
+    }
+    Ok(format!(
+        "{}?country={}&view=summary",
+        MpFetchOp::ElectionList.path(),
+        country_code.to_ascii_uppercase()
+    ))
+}
+
 /// Corporation detail path: exactly `/api/corporations/<validated id>`
 /// with no query string. The id segment re-validates here so a future
 /// refactor of [`fetch_corporation_path`] cannot widen the pin.
@@ -1094,6 +1363,17 @@ fn is_allowlisted_call(method: &str, path_and_query: &str) -> bool {
         | ("GET", "/api/players/online")
         | ("GET", "/api/admin/maintenance")
         | ("GET", "/api/game-time") => query.is_none(),
+        // The status read only ever runs with the pinned minimal layout.
+        ("GET", "/api/client-status") => matches!(query, Some("layout=minimal")),
+        ("GET", "/api/countries") => query.is_none(),
+        ("GET", "/api/characters/search") => match query {
+            Some(query) => is_character_search_pair(query),
+            None => false,
+        },
+        ("GET", "/api/news") => match query {
+            Some(query) => is_paged_query(query),
+            None => false,
+        },
         ("GET", "/api/notifications") | ("GET", "/api/mail") | ("GET", "/api/mail/sent") => {
             match query {
                 Some(query) => is_paged_query(query),
@@ -1101,7 +1381,8 @@ fn is_allowlisted_call(method: &str, path_and_query: &str) -> bool {
             }
         }
         ("GET", "/api/elections") => match query {
-            Some(query) => is_election_query(query),
+            // The detail read pins id+view; the list read pins country+view.
+            Some(query) => is_election_query(query) || is_election_list_query(query),
             None => false,
         },
         ("GET", path) if path.starts_with("/api/corporations/") => {
@@ -1109,7 +1390,13 @@ fn is_allowlisted_call(method: &str, path_and_query: &str) -> bool {
         }
         ("GET", path) if path.starts_with("/api/unions/") => query.is_none() && is_union_path(path),
         ("GET", path) if path.starts_with("/api/country/") => {
-            query.is_none() && (is_cabinet_path(path) || is_governor_path(path))
+            query.is_none()
+                && (is_cabinet_path(path)
+                    || is_governor_path(path)
+                    || is_country_overview_path(path)
+                    || is_country_states_path(path)
+                    || is_country_parties_path(path)
+                    || is_country_politicians_path(path))
         }
         ("POST", "/api/actions/execute") | ("PATCH", "/api/notifications") => query.is_none(),
         ("PUT", "/api/notifications/preferences") => query.is_none(),
@@ -1657,6 +1944,10 @@ pub struct MpFetchDetail {
     pub governor_country_code: Option<String>,
     #[serde(default, rename = "governorStateId")]
     pub governor_state_id: Option<String>,
+    #[serde(default, rename = "countryCode")]
+    pub country_code: Option<String>,
+    #[serde(default, rename = "searchQuery")]
+    pub search_query: Option<String>,
 }
 
 /// Fetch one allowlisted read through the live-site session. Resolves with
@@ -1682,6 +1973,8 @@ pub async fn mp_session_fetch(
                 || detail.cabinet_position_id.is_some()
                 || detail.governor_country_code.is_some()
                 || detail.governor_state_id.is_some()
+                || detail.country_code.is_some()
+                || detail.search_query.is_some()
             {
                 return Err(error::UNSUPPORTED_OP.to_string());
             }
@@ -1700,6 +1993,8 @@ pub async fn mp_session_fetch(
                 || detail.cabinet_position_id.is_some()
                 || detail.governor_country_code.is_some()
                 || detail.governor_state_id.is_some()
+                || detail.country_code.is_some()
+                || detail.search_query.is_some()
             {
                 return Err(error::UNSUPPORTED_OP.to_string());
             }
@@ -1718,6 +2013,8 @@ pub async fn mp_session_fetch(
                 || detail.cabinet_position_id.is_some()
                 || detail.governor_country_code.is_some()
                 || detail.governor_state_id.is_some()
+                || detail.country_code.is_some()
+                || detail.search_query.is_some()
             {
                 return Err(error::UNSUPPORTED_OP.to_string());
             }
@@ -1735,6 +2032,8 @@ pub async fn mp_session_fetch(
                 || detail.union_id.is_some()
                 || detail.governor_country_code.is_some()
                 || detail.governor_state_id.is_some()
+                || detail.country_code.is_some()
+                || detail.search_query.is_some()
             {
                 return Err(error::UNSUPPORTED_OP.to_string());
             }
@@ -1756,6 +2055,7 @@ pub async fn mp_session_fetch(
                 || detail.union_id.is_some()
                 || detail.cabinet_country_code.is_some()
                 || detail.cabinet_position_id.is_some()
+                || detail.country_code.is_some()
             {
                 return Err(error::UNSUPPORTED_OP.to_string());
             }
@@ -1769,6 +2069,154 @@ pub async fn mp_session_fetch(
                 .ok_or_else(|| error::BAD_ARG.to_string())?;
             fetch_governor_path(country, state)?
         }
+        MpFetchOp::Countries => {
+            if limit.is_some()
+                || offset.is_some()
+                || detail.election_id.is_some()
+                || detail.corporation_id.is_some()
+                || detail.union_id.is_some()
+                || detail.cabinet_country_code.is_some()
+                || detail.cabinet_position_id.is_some()
+                || detail.governor_country_code.is_some()
+                || detail.governor_state_id.is_some()
+                || detail.country_code.is_some()
+                || detail.search_query.is_some()
+            {
+                return Err(error::UNSUPPORTED_OP.to_string());
+            }
+            fetch_path_and_query(op, limit, offset)?
+        }
+        MpFetchOp::CountryOverview => {
+            if limit.is_some()
+                || offset.is_some()
+                || detail.election_id.is_some()
+                || detail.corporation_id.is_some()
+                || detail.union_id.is_some()
+                || detail.cabinet_country_code.is_some()
+                || detail.cabinet_position_id.is_some()
+                || detail.governor_country_code.is_some()
+                || detail.governor_state_id.is_some()
+            {
+                return Err(error::UNSUPPORTED_OP.to_string());
+            }
+            let country = detail
+                .country_code
+                .as_deref()
+                .ok_or_else(|| error::BAD_ARG.to_string())?;
+            fetch_country_overview_path(country)?
+        }
+        MpFetchOp::CountryStates => {
+            if limit.is_some()
+                || offset.is_some()
+                || detail.election_id.is_some()
+                || detail.corporation_id.is_some()
+                || detail.union_id.is_some()
+                || detail.cabinet_country_code.is_some()
+                || detail.cabinet_position_id.is_some()
+                || detail.governor_country_code.is_some()
+                || detail.governor_state_id.is_some()
+            {
+                return Err(error::UNSUPPORTED_OP.to_string());
+            }
+            let country = detail
+                .country_code
+                .as_deref()
+                .ok_or_else(|| error::BAD_ARG.to_string())?;
+            fetch_country_states_path(country)?
+        }
+        MpFetchOp::CountryParties => {
+            if limit.is_some()
+                || offset.is_some()
+                || detail.election_id.is_some()
+                || detail.corporation_id.is_some()
+                || detail.union_id.is_some()
+                || detail.cabinet_country_code.is_some()
+                || detail.cabinet_position_id.is_some()
+                || detail.governor_country_code.is_some()
+                || detail.governor_state_id.is_some()
+            {
+                return Err(error::UNSUPPORTED_OP.to_string());
+            }
+            let country = detail
+                .country_code
+                .as_deref()
+                .ok_or_else(|| error::BAD_ARG.to_string())?;
+            fetch_country_parties_path(country)?
+        }
+        MpFetchOp::CountryPoliticians => {
+            if limit.is_some()
+                || offset.is_some()
+                || detail.election_id.is_some()
+                || detail.corporation_id.is_some()
+                || detail.union_id.is_some()
+                || detail.cabinet_country_code.is_some()
+                || detail.cabinet_position_id.is_some()
+                || detail.governor_country_code.is_some()
+                || detail.governor_state_id.is_some()
+            {
+                return Err(error::UNSUPPORTED_OP.to_string());
+            }
+            let country = detail
+                .country_code
+                .as_deref()
+                .ok_or_else(|| error::BAD_ARG.to_string())?;
+            fetch_country_politicians_path(country)?
+        }
+        MpFetchOp::CharacterSearch => {
+            if limit.is_some()
+                || offset.is_some()
+                || detail.election_id.is_some()
+                || detail.corporation_id.is_some()
+                || detail.union_id.is_some()
+                || detail.cabinet_country_code.is_some()
+                || detail.cabinet_position_id.is_some()
+                || detail.governor_country_code.is_some()
+                || detail.governor_state_id.is_some()
+                || detail.country_code.is_some()
+                || detail.search_query.is_some()
+            {
+                return Err(error::UNSUPPORTED_OP.to_string());
+            }
+            let query = detail
+                .search_query
+                .as_deref()
+                .ok_or_else(|| error::BAD_ARG.to_string())?;
+            fetch_character_search_path(query)?
+        }
+        MpFetchOp::NewsFeed => {
+            if detail.election_id.is_some()
+                || detail.corporation_id.is_some()
+                || detail.union_id.is_some()
+                || detail.cabinet_country_code.is_some()
+                || detail.cabinet_position_id.is_some()
+                || detail.governor_country_code.is_some()
+                || detail.governor_state_id.is_some()
+                || detail.country_code.is_some()
+                || detail.search_query.is_some()
+            {
+                return Err(error::UNSUPPORTED_OP.to_string());
+            }
+            fetch_path_and_query(op, limit, offset)?
+        }
+        MpFetchOp::ElectionList => {
+            if limit.is_some()
+                || offset.is_some()
+                || detail.election_id.is_some()
+                || detail.corporation_id.is_some()
+                || detail.union_id.is_some()
+                || detail.cabinet_country_code.is_some()
+                || detail.cabinet_position_id.is_some()
+                || detail.governor_country_code.is_some()
+                || detail.governor_state_id.is_some()
+            {
+                return Err(error::UNSUPPORTED_OP.to_string());
+            }
+            let country = detail
+                .country_code
+                .as_deref()
+                .ok_or_else(|| error::BAD_ARG.to_string())?;
+            fetch_election_list_path(country)?
+        }
         _ => {
             if detail.election_id.is_some()
                 || detail.corporation_id.is_some()
@@ -1777,6 +2225,7 @@ pub async fn mp_session_fetch(
                 || detail.cabinet_position_id.is_some()
                 || detail.governor_country_code.is_some()
                 || detail.governor_state_id.is_some()
+                || detail.country_code.is_some()
             {
                 return Err(error::BAD_ARG.to_string());
             }
@@ -1839,6 +2288,197 @@ mod tests {
         assert_eq!(MpFetchOp::from_id("../admin"), None);
         assert_eq!(MpFetchOp::from_id("CHARACTER-ME"), None);
         assert_eq!(MpFetchOp::from_id(""), None);
+    }
+
+    #[test]
+    fn client_status_read_pins_the_minimal_layout() {
+        assert_eq!(
+            MpFetchOp::from_id("client-status"),
+            Some(MpFetchOp::ClientStatus)
+        );
+        assert_eq!(MpFetchOp::ClientStatus.path(), "/api/client-status");
+        assert_eq!(
+            fetch_path_and_query(MpFetchOp::ClientStatus, None, None).unwrap(),
+            "/api/client-status?layout=minimal"
+        );
+        // Pagination arguments never apply to this read.
+        assert!(fetch_path_and_query(MpFetchOp::ClientStatus, Some(10), None).is_err());
+        assert!(fetch_path_and_query(MpFetchOp::ClientStatus, None, Some(10)).is_err());
+        // The transport allowlist accepts exactly the pinned query.
+        assert!(is_allowlisted_call(
+            "GET",
+            "/api/client-status?layout=minimal"
+        ));
+        assert!(!is_allowlisted_call("GET", "/api/client-status"));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/client-status?layout=full"
+        ));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/client-status?layout=minimal&x=1"
+        ));
+        assert!(!is_allowlisted_call(
+            "POST",
+            "/api/client-status?layout=minimal"
+        ));
+    }
+
+    #[test]
+    fn world_reads_resolve_to_pinned_paths() {
+        assert_eq!(MpFetchOp::from_id("countries"), Some(MpFetchOp::Countries));
+        assert_eq!(MpFetchOp::Countries.path(), "/api/countries");
+        assert_eq!(
+            fetch_path_and_query(MpFetchOp::Countries, None, None).unwrap(),
+            "/api/countries"
+        );
+        assert!(is_allowlisted_call("GET", "/api/countries"));
+        assert!(!is_allowlisted_call("GET", "/api/countries?x=1"));
+        assert!(!is_allowlisted_call("POST", "/api/countries"));
+
+        assert_eq!(
+            MpFetchOp::from_id("country-overview"),
+            Some(MpFetchOp::CountryOverview)
+        );
+        assert_eq!(
+            fetch_country_overview_path("us").unwrap(),
+            "/api/country/US/overview-counts"
+        );
+        assert!(is_allowlisted_call(
+            "GET",
+            "/api/country/US/overview-counts"
+        ));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/countries/US/overview-counts"
+        ));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/country/USA/overview-counts"
+        ));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/country/US/overview-counts?x=1"
+        ));
+        assert!(fetch_country_overview_path("usa").is_err());
+        assert!(fetch_country_overview_path("U1").is_err());
+        assert!(fetch_country_overview_path("").is_err());
+
+        assert_eq!(
+            MpFetchOp::from_id("country-states"),
+            Some(MpFetchOp::CountryStates)
+        );
+        assert_eq!(
+            fetch_country_states_path("uk").unwrap(),
+            "/api/country/UK/states"
+        );
+        assert!(is_allowlisted_call("GET", "/api/country/UK/states"));
+        assert!(!is_allowlisted_call("GET", "/api/countries/UK/states"));
+        assert!(!is_allowlisted_call("GET", "/api/country/UKA/states"));
+        assert!(!is_allowlisted_call("GET", "/api/country/UK/states?x=1"));
+        assert!(fetch_country_states_path("uk1").is_err());
+
+        assert_eq!(
+            MpFetchOp::from_id("country-parties"),
+            Some(MpFetchOp::CountryParties)
+        );
+        assert_eq!(
+            fetch_country_parties_path("us").unwrap(),
+            "/api/country/US/parties"
+        );
+        assert!(is_allowlisted_call("GET", "/api/country/US/parties"));
+        assert!(!is_allowlisted_call("GET", "/api/countries/US/parties"));
+        assert!(!is_allowlisted_call("GET", "/api/country/USA/parties"));
+        assert!(!is_allowlisted_call("GET", "/api/country/US/parties?x=1"));
+        assert!(fetch_country_parties_path("u s").is_err());
+
+        assert_eq!(
+            MpFetchOp::from_id("country-politicians"),
+            Some(MpFetchOp::CountryPoliticians)
+        );
+        assert_eq!(
+            fetch_country_politicians_path("de").unwrap(),
+            "/api/country/DE/politicians"
+        );
+        assert!(is_allowlisted_call("GET", "/api/country/DE/politicians"));
+        assert!(!is_allowlisted_call("GET", "/api/country/DE/politicians2"));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/country/DE/politicians?x=1"
+        ));
+        assert!(fetch_country_politicians_path("").is_err());
+
+        assert_eq!(
+            MpFetchOp::from_id("election-list"),
+            Some(MpFetchOp::ElectionList)
+        );
+        assert_eq!(
+            fetch_election_list_path("us").unwrap(),
+            "/api/elections?country=US&view=summary"
+        );
+        assert!(is_allowlisted_call(
+            "GET",
+            "/api/elections?country=US&view=summary"
+        ));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/elections?country=USA&view=summary"
+        ));
+        assert!(!is_allowlisted_call("GET", "/api/elections?country=US"));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/elections?country=US&view=full"
+        ));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/elections?country=US&view=summary&x=1"
+        ));
+        assert!(fetch_election_list_path("u1").is_err());
+
+        assert_eq!(MpFetchOp::from_id("news-feed"), Some(MpFetchOp::NewsFeed));
+        assert_eq!(MpFetchOp::NewsFeed.path(), "/api/news");
+        assert_eq!(
+            fetch_path_and_query(MpFetchOp::NewsFeed, Some(20), Some(0)).unwrap(),
+            "/api/news?limit=20&offset=0"
+        );
+        assert!(fetch_path_and_query(MpFetchOp::NewsFeed, None, None).is_err());
+        assert!(fetch_path_and_query(MpFetchOp::NewsFeed, Some(0), None).is_err());
+        assert!(fetch_path_and_query(MpFetchOp::NewsFeed, Some(51), None).is_err());
+        assert!(fetch_path_and_query(MpFetchOp::NewsFeed, Some(20), Some(100_001)).is_err());
+        assert!(is_allowlisted_call("GET", "/api/news?limit=20&offset=0"));
+        assert!(!is_allowlisted_call("GET", "/api/news"));
+        assert!(!is_allowlisted_call("GET", "/api/news?limit=20"));
+
+        assert_eq!(
+            MpFetchOp::from_id("character-search"),
+            Some(MpFetchOp::CharacterSearch)
+        );
+        assert_eq!(MpFetchOp::CharacterSearch.path(), "/api/characters/search");
+        assert_eq!(
+            fetch_character_search_path("Ada").unwrap(),
+            "/api/characters/search?q=Ada&limit=10"
+        );
+        assert_eq!(
+            fetch_character_search_path("Ada Lovelace").unwrap(),
+            "/api/characters/search?q=Ada%20Lovelace&limit=10"
+        );
+        assert!(fetch_character_search_path("a").is_err());
+        assert!(fetch_character_search_path("").is_err());
+        assert!(fetch_character_search_path("Ada&limit=99").is_err());
+        assert!(fetch_character_search_path("Ada'--").is_err());
+        assert!(is_allowlisted_call(
+            "GET",
+            "/api/characters/search?q=Ada%20Lovelace&limit=10"
+        ));
+        assert!(!is_allowlisted_call("GET", "/api/characters/search?q=Ada"));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/characters/search?q=Ada&limit=50"
+        ));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/characters/search?q=Ada%20Lovelace&limit=10&x=1"
+        ));
     }
 
     #[test]

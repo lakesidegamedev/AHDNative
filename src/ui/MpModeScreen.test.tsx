@@ -98,7 +98,7 @@ describe("MpModeScreen at 320px", () => {
     setViewport(320);
     render(<MpModeScreen host={fakeHost(readyScript()).host} onExit={() => {}} />);
     expect(await screen.findByRole("heading", { name: "Ada" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /Turn 12 · 1862/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Turn 12 · March, Week 4, 1862" })).toBeInTheDocument();
     // The authoritative cash figure projects twice: the Player card and the
     // Wallet section (#507 reachability slice), both from character-me.
     expect(screen.getAllByText("1000")).toHaveLength(2);
