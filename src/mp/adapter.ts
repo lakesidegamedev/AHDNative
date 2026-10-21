@@ -12,6 +12,7 @@ import {
   parseCorporationDetail,
   parseElectionDetail,
   parseElectionList,
+  parseNewsFeed,
   parseExecuteResult,
   parseGovernorDetail,
   parseInbox,
@@ -52,6 +53,7 @@ import {
   type MpRegionView,
   type MpNationPartyView,
   type MpNationPoliticianView,
+  type MpNewsPostView,
   type MpUnionDetailView,
 } from "./validators";
 import type { MpMutateOpId } from "./endpoints";
@@ -145,6 +147,11 @@ export interface MpSnapshot {
    * /api/elections?country={code}&view=summary. Loaded on demand.
    */
   electionList: MpElectionDetailView[] | null;
+  /**
+   * The world news feed, from GET /api/news. Loaded on demand when the
+   * news destination opens.
+   */
+  newsFeed: MpNewsPostView[] | null;
   /** Last server-confirmed notice (action result); cleared on next load. */
   notice: string | null;
   /** Last human-readable failure; cleared when a call succeeds. */
@@ -177,12 +184,16 @@ const INITIAL_SNAPSHOT: MpSnapshot = {
   nationParties: null,
   nationPoliticians: null,
   electionList: null,
+  newsFeed: null,
   notice: null,
   error: null,
   retryAfter: null,
 };
 
 export const MP_INBOX_LIMIT = 25;
+
+/** World news page size: the route caps a page at 50 entries. */
+export const MP_NEWS_LIMIT = 20;
 
 /**
  * Audited mail page size (#359 chat slice): the mail routes accept limit
@@ -193,9 +204,9 @@ export const MP_MAIL_LIMIT = 50;
 
 function emptyAuthed(): Pick<
   MpSnapshot,
-  "character" | "savings" | "turn" | "capabilities" | "electionDetail" | "corporationDetail" | "unionDetail" | "cabinetDetail" | "governorDetail" | "inbox" | "mailInbox" | "mailSent" | "presence" | "status" | "nations" | "nationOverview" | "nationRegions" | "nationParties" | "nationPoliticians" | "electionList"
+  "character" | "savings" | "turn" | "capabilities" | "electionDetail" | "corporationDetail" | "unionDetail" | "cabinetDetail" | "governorDetail" | "inbox" | "mailInbox" | "mailSent" | "presence" | "status" | "nations" | "nationOverview" | "nationRegions" | "nationParties" | "nationPoliticians" | "electionList" | "newsFeed"
 > {
-  return { character: null, savings: null, turn: null, capabilities: null, electionDetail: null, corporationDetail: null, unionDetail: null, cabinetDetail: null, governorDetail: null, inbox: null, mailInbox: null, mailSent: null, presence: null, status: null, nations: null, nationOverview: null, nationRegions: null, nationParties: null, nationPoliticians: null, electionList: null };
+  return { character: null, savings: null, turn: null, capabilities: null, electionDetail: null, corporationDetail: null, unionDetail: null, cabinetDetail: null, governorDetail: null, inbox: null, mailInbox: null, mailSent: null, presence: null, status: null, nations: null, nationOverview: null, nationRegions: null, nationParties: null, nationPoliticians: null, electionList: null, newsFeed: null };
 }
 
 export class MpModeSession {
@@ -685,6 +696,23 @@ export class MpModeSession {
       const nationPoliticians = parseCountryPoliticians(result.bodyText);
       if (!nationPoliticians) return this.get();
       return this.set({ nationPoliticians });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
+   * Read the world news feed (#510 world destinations). GET /api/news is
+   * public and paged; the page size is the route's own cap. Every failure
+   * keeps the last good feed and never fails the session. Never throws.
+   */
+  async loadNewsFeed(): Promise<MpSnapshot> {
+    try {
+      const result = await mpFetch(this.host, "news-feed", MP_NEWS_LIMIT, 0);
+      if (result.kind !== "ok") return this.get();
+      const newsFeed = parseNewsFeed(result.bodyText);
+      if (!newsFeed) return this.get();
+      return this.set({ newsFeed });
     } catch {
       return this.get();
     }

@@ -87,6 +87,12 @@
  *   total, page}. The list items are the same resolved summary the
  *   single-election read returns, so Native projects them through one
  *   shared projection.
+ * - news-feed         GET /api/news?limit={limit}&offset={offset}
+ *   public, no auth. The world news feed (AHDGame
+ *   src/app/api/news/route.ts): 200 {posts:[{_id,title,content,authorName,
+ *   authorAvatarUrl,imageUrl,isSystem,feedType,category,reactions,
+ *   replyCount,createdAt}]}. The route caps the page at 50 and Native
+ *   reads the widest page it allows.
  * - turn-status       /api/game/turn/status    public; 404 uninitialized
  *   {singleplayer,currentTurn,currentYear,startingYear,preset,
  *   preIterationTurns,preIterationActive,isActive,isProcessing,
@@ -378,7 +384,8 @@ export type MpFetchOpId =
   | "country-states"
   | "country-parties"
   | "country-politicians"
-  | "election-list";
+  | "election-list"
+  | "news-feed";
 
 export type MpMutateOpId =
   | "execute-action"

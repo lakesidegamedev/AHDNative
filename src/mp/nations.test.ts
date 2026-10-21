@@ -176,6 +176,51 @@ describe("MpModeSession loadCountryRegions", () => {
   });
 });
 
+describe("MpModeSession loadNewsFeed", () => {
+  const feed = JSON.stringify({
+    posts: [
+      {
+        _id: "68a000000000000000000009",
+        title: "Markets rally",
+        content: "Stocks closed higher.",
+        authorName: "Ada",
+        isSystem: false,
+        feedType: "article",
+        replyCount: 3,
+        createdAt: "2026-10-20T12:00:00.000Z",
+      },
+    ],
+  });
+
+  it("projects the world feed and keeps the session intact", async () => {
+    const { host, calls } = scriptedHost(enterScripts({ "news-feed": [feed] }));
+    const session = new MpModeSession(host);
+    await session.enter();
+    const snapshot = await session.loadNewsFeed();
+    expect(snapshot.newsFeed?.[0]).toMatchObject({
+      title: "Markets rally",
+      content: "Stocks closed higher.",
+      authorName: "Ada",
+    });
+    expect(snapshot.phase).toBe("ready");
+    expect(snapshot.error).toBeNull();
+    expect(calls.filter((call) => call === "fetch:news-feed")).toHaveLength(1);
+  });
+
+  it("keeps the last good feed when the read fails", async () => {
+    const { host } = scriptedHost(
+      enterScripts({ "news-feed": [feed, { reject: "remote-error:500:Server error" }] }),
+    );
+    const session = new MpModeSession(host);
+    await session.enter();
+    await session.loadNewsFeed();
+    const snapshot = await session.loadNewsFeed();
+    expect(snapshot.newsFeed?.[0]?.title).toBe("Markets rally");
+    expect(snapshot.phase).toBe("ready");
+    expect(snapshot.error).toBeNull();
+  });
+});
+
 describe("MpModeSession loadElectionList", () => {
   const electionList = JSON.stringify({
     elections: [

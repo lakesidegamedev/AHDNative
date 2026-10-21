@@ -81,6 +81,7 @@ const IDLE: MpSnapshot = {
   nationParties: null,
   nationPoliticians: null,
   electionList: null,
+  newsFeed: null,
   notice: null,
   error: null,
   retryAfter: null,
@@ -204,6 +205,7 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
    * spinning forever. */
   const [nationsLoading, setNationsLoading] = useState(false);
   const [electionsLoading, setElectionsLoading] = useState(false);
+  const [newsLoading, setNewsLoading] = useState(false);
 
   useEffect(() => {
     const session = sessionRef.current!;
@@ -417,6 +419,21 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
     // relaxed (120s). Timers are cleared on every phase change, so this
     // cannot stack pollers.
   }, [snapshot.phase]);
+
+  /* World news (#510 world destinations). The feed is public and paged; it
+   * loads when the destination opens and never blocks the session. A failed
+   * read keeps the last good feed. */
+  useEffect(() => {
+    if (activeSection !== "mp-news") return;
+    const session = sessionRef.current!;
+    const current = session.get();
+    if (current.phase !== "ready" || current.newsFeed) return;
+    setNewsLoading(true);
+    void session.loadNewsFeed().then((next) => {
+      setNewsLoading(false);
+      setSnapshot(next);
+    });
+  }, [activeSection, snapshot.newsFeed]);
 
   /* Election list (#510 world destinations). The nation's races come from
    * the public election list read; it loads when the destination opens and
@@ -806,6 +823,7 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
   const profileParty = profilePartyName(snapshot.character, snapshot.capabilities);
   const profileHome = profileHomeName(snapshot.character, snapshot.capabilities);
   const electionList = snapshot.electionList;
+  const newsFeed = snapshot.newsFeed;
   const nationParties = selectedNation ? snapshot.nationParties : null;
   const nationPoliticians = selectedNation ? snapshot.nationPoliticians : null;
   const homeCountryId = snapshot.character?.countryId ?? snapshot.capabilities?.characterCountryId ?? null;
@@ -868,7 +886,7 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
         <header className="ahd-mp-row ahd-mp-heading" aria-label="Multiplayer header">
           <div style={{ minWidth: 0 }}>
             <p className="ahd-eyebrow">Multiplayer</p>
-            {activeSection !== "mp-profile" && activeSection !== "mp-settings" && activeSection !== "mp-actions" && activeSection !== "mp-ask" && <h1 className="ahd-h1" id="mp-top" tabIndex={-1}>{({ "mp-profile": "Profile", "mp-actions": "Actions", "mp-wallet": "Wallet", "mp-inbox": "Notifications", "mp-mail": "Mail", "mp-settings": "Settings", "mp-nations": "Nations", "mp-elections": "Elections" } as Record<string, string>)[activeSection] ?? "Details"}</h1>}
+            {activeSection !== "mp-profile" && activeSection !== "mp-settings" && activeSection !== "mp-actions" && activeSection !== "mp-ask" && <h1 className="ahd-h1" id="mp-top" tabIndex={-1}>{({ "mp-profile": "Profile", "mp-actions": "Actions", "mp-wallet": "Wallet", "mp-inbox": "Notifications", "mp-mail": "Mail", "mp-settings": "Settings", "mp-nations": "Nations", "mp-elections": "Elections", "mp-news": "News" } as Record<string, string>)[activeSection] ?? "Details"}</h1>}
             {snapshot.username && <p className="ahd-muted" style={{ margin: 0 }}>Playing as {snapshot.username}</p>}
           </div>
         </header>
@@ -1283,6 +1301,32 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
           </div>
           </>
         )}
+
+        {/* News (#510 world destinations): the world news feed, read-only.
+          * The reference news page is a destination of its own; Native shows
+          * the feed without the posting or reaction actions, which the
+          * audited read does not carry. */}
+        <section id="mp-news" className="ahd-card ahd-card-pad" aria-label="News" tabIndex={-1} hidden={activeSection !== "mp-news"}>
+          <h2 className="ahd-h2">News</h2>
+          {newsFeed && newsFeed.length > 0 ? (
+            <ul className="ahd-mp-list" aria-label="World news">
+              {newsFeed.map((post) => (
+                <li key={post.id}>
+                  <strong>{post.title ?? (post.isSystem ? "World report" : "News")}</strong>
+                  <span className="ahd-muted">{" "}{post.authorName ? "- " + post.authorName : ""}</span>
+                  <p className="ahd-muted" style={{ margin: "0.2rem 0 0" }}>{post.content}</p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="ahd-muted">{newsLoading ? "Loading the news feed\u2026" : "The server did not answer with a news feed."}</p>
+          )}
+        </section>
+        <div hidden={activeSection !== "mp-news"} className="ahd-mp-row ahd-mp-back">
+          <button className="ahd-btn ahd-btn-sm ahd-btn-ghost" onClick={() => jumpTo("mp-top")}>
+            Back to Standing
+          </button>
+        </div>
 
         {/* Elections (#510 world destinations): the player's nation's
           * races from the public election list read, each opening the
@@ -1857,6 +1901,9 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
             </button>
             <button className="ahd-drawer-item" aria-current={activeSection === "mp-elections" ? "page" : undefined} data-active={activeSection === "mp-elections" ? "true" : undefined} onClick={() => navigateFromMenu("mp-elections")}>
               Elections
+            </button>
+            <button className="ahd-drawer-item" aria-current={activeSection === "mp-news" ? "page" : undefined} data-active={activeSection === "mp-news" ? "true" : undefined} onClick={() => navigateFromMenu("mp-news")}>
+              News
             </button>
           </nav>
 

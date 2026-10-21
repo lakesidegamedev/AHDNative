@@ -19,6 +19,7 @@ import {
   parseCorporationDetail,
   parseElectionDetail,
   parseElectionList,
+  parseNewsFeed,
   parseExecuteResult,
   parseGovernorDetail,
   parseInbox,
@@ -609,6 +610,48 @@ describe("parseCountryOverview", () => {
   it("rejects an error envelope and a malformed body", () => {
     expect(parseCountryOverview(JSON.stringify({ error: "Invalid country code" }))).toBeNull();
     expect(parseCountryOverview("not json")).toBeNull();
+  });
+});
+
+describe("parseNewsFeed", () => {
+  it("projects the world news feed", () => {
+    expect(
+      parseNewsFeed(
+        JSON.stringify({
+          posts: [
+            {
+              _id: "68a000000000000000000009",
+              title: "Markets rally",
+              content: "Stocks closed higher.",
+              authorName: "Ada",
+              imageUrl: null,
+              isSystem: false,
+              feedType: "article",
+              replyCount: 3,
+              createdAt: "2026-10-20T12:00:00.000Z",
+            },
+          ],
+        }),
+      ),
+    ).toEqual([
+      {
+        id: "68a000000000000000000009",
+        title: "Markets rally",
+        content: "Stocks closed higher.",
+        authorName: "Ada",
+        imageUrl: null,
+        isSystem: false,
+        feedType: "article",
+        replyCount: 3,
+        createdAt: "2026-10-20T12:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("fails closed on a malformed feed", () => {
+    expect(parseNewsFeed(JSON.stringify({ posts: [{ _id: "x" }] }))).toBeNull();
+    expect(parseNewsFeed(JSON.stringify({ posts: "nope" }))).toBeNull();
+    expect(parseNewsFeed("not json")).toBeNull();
   });
 });
 

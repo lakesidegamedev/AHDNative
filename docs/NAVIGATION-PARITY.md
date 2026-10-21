@@ -871,3 +871,24 @@ Focused evidence: `src/ui/MpIdentityLabels510.test.tsx` (2 rendered tests:
 the resolved names replace the raw keys, an unaffiliated character shows no
 party chip) and `src/mp/validators.test.ts` (the client-nav projection). No
 physical-iPhone evidence is claimed; #363/#436 remain open.
+
+## 25. MP News destination (#510)
+
+The reference news page is a destination of its own; multiplayer had no
+world feed at all, even though the server publishes one.
+
+Delivered:
+
+- The MP drawer gained a World > News destination. It reads the world feed
+  from the public news read (`GET /api/news`, paged like the other paged
+  reads) and renders each post's title, author and content. A system post
+  without a title reads as a world report rather than an empty row.
+- The destination is read-only: the audited read carries no posting or
+  reaction action, so none is offered and none is implied.
+- A failed read reports honestly and keeps the session ready.
+
+Focused evidence: `src/ui/MpNews510.test.tsx` (2 rendered tests: the feed
+listing and the honest empty state), `src/mp/nations.test.ts` (the feed
+projection and the last-good-feed posture) and the Rust path/allowlist
+assertions in `mp_session::tests::world_reads_resolve_to_pinned_paths`. No
+physical-iPhone evidence is claimed; #363/#436 remain open.

@@ -188,6 +188,9 @@ pub enum MpFetchOp {
     /// The country code is a two-letter COUNTRY_CONFIGS key; see
     /// [`is_country_code`].
     ElectionList,
+    /// The world news feed; GET /api/news?limit={limit}&offset={offset}
+    /// (public, no auth). The pagination mirrors the other paged reads.
+    NewsFeed,
 }
 
 impl MpFetchOp {
@@ -216,6 +219,7 @@ impl MpFetchOp {
             "country-parties" => Some(Self::CountryParties),
             "country-politicians" => Some(Self::CountryPoliticians),
             "election-list" => Some(Self::ElectionList),
+            "news-feed" => Some(Self::NewsFeed),
             _ => None,
         }
     }
@@ -245,6 +249,7 @@ impl MpFetchOp {
             Self::CountryParties => "/api/country",
             Self::CountryPoliticians => "/api/country",
             Self::ElectionList => "/api/elections",
+            Self::NewsFeed => "/api/news",
         }
     }
 }
@@ -609,6 +614,17 @@ fn fetch_path_and_query(
             // layout answers the footer scalars without the wide
             // enrichment queries.
             Ok(format!("{}?layout=minimal", op.path()))
+        }
+        MpFetchOp::NewsFeed => {
+            let limit = limit.ok_or_else(|| error::BAD_ARG.to_string())?;
+            if !(1..=50).contains(&limit) {
+                return Err(error::BAD_ARG.to_string());
+            }
+            let offset = offset.unwrap_or(0);
+            if offset > 100_000 {
+                return Err(error::BAD_ARG.to_string());
+            }
+            Ok(format!("{}?limit={limit}&offset={offset}", op.path()))
         }
         MpFetchOp::Notifications | MpFetchOp::MailInbox | MpFetchOp::MailSent => {
             let limit = limit.ok_or_else(|| error::BAD_ARG.to_string())?;
@@ -1290,6 +1306,10 @@ fn is_allowlisted_call(method: &str, path_and_query: &str) -> bool {
         // The status read only ever runs with the pinned minimal layout.
         ("GET", "/api/client-status") => matches!(query, Some("layout=minimal")),
         ("GET", "/api/countries") => query.is_none(),
+        ("GET", "/api/news") => match query {
+            Some(query) => is_paged_query(query),
+            None => false,
+        },
         ("GET", "/api/notifications") | ("GET", "/api/mail") | ("GET", "/api/mail/sent") => {
             match query {
                 Some(query) => is_paged_query(query),
@@ -2071,6 +2091,20 @@ pub async fn mp_session_fetch(
                 .ok_or_else(|| error::BAD_ARG.to_string())?;
             fetch_country_politicians_path(country)?
         }
+        MpFetchOp::NewsFeed => {
+            if detail.election_id.is_some()
+                || detail.corporation_id.is_some()
+                || detail.union_id.is_some()
+                || detail.cabinet_country_code.is_some()
+                || detail.cabinet_position_id.is_some()
+                || detail.governor_country_code.is_some()
+                || detail.governor_state_id.is_some()
+                || detail.country_code.is_some()
+            {
+                return Err(error::UNSUPPORTED_OP.to_string());
+            }
+            fetch_path_and_query(op, limit, offset)?
+        }
         MpFetchOp::ElectionList => {
             if limit.is_some()
                 || offset.is_some()
@@ -2307,6 +2341,20 @@ mod tests {
             "/api/elections?country=US&view=summary&x=1"
         ));
         assert!(fetch_election_list_path("u1").is_err());
+
+        assert_eq!(MpFetchOp::from_id("news-feed"), Some(MpFetchOp::NewsFeed));
+        assert_eq!(MpFetchOp::NewsFeed.path(), "/api/news");
+        assert_eq!(
+            fetch_path_and_query(MpFetchOp::NewsFeed, Some(20), Some(0)).unwrap(),
+            "/api/news?limit=20&offset=0"
+        );
+        assert!(fetch_path_and_query(MpFetchOp::NewsFeed, None, None).is_err());
+        assert!(fetch_path_and_query(MpFetchOp::NewsFeed, Some(0), None).is_err());
+        assert!(fetch_path_and_query(MpFetchOp::NewsFeed, Some(51), None).is_err());
+        assert!(fetch_path_and_query(MpFetchOp::NewsFeed, Some(20), Some(100_001)).is_err());
+        assert!(is_allowlisted_call("GET", "/api/news?limit=20&offset=0"));
+        assert!(!is_allowlisted_call("GET", "/api/news"));
+        assert!(!is_allowlisted_call("GET", "/api/news?limit=20"));
     }
 
     #[test]

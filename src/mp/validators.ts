@@ -789,6 +789,50 @@ export function parseCountryPoliticians(bodyText: string): MpNationPoliticianVie
 }
 
 /**
+ * One post of the world news feed, from GET /api/news.
+ */
+export interface MpNewsPostView {
+  id: string;
+  title: string | null;
+  content: string;
+  authorName: string | null;
+  imageUrl: string | null;
+  /** System posts are the world's own reports; player posts are articles. */
+  isSystem: boolean | null;
+  feedType: string | null;
+  replyCount: number | null;
+  createdAt: string | null;
+}
+
+/**
+ * news-feed: the world news feed. A malformed post invalidates the page
+ * rather than half-inventing a feed.
+ */
+export function parseNewsFeed(bodyText: string): MpNewsPostView[] | null {
+  const record = asRecord(parseJsonBody(bodyText));
+  if (!record || !Array.isArray(record.posts)) return null;
+  const posts: MpNewsPostView[] = [];
+  for (const entry of record.posts) {
+    const item = asRecord(entry);
+    const id = item ? asTrimmedString(item._id) : null;
+    const content = item ? asTrimmedString(item.content) : null;
+    if (!item || !id || !content) return null;
+    posts.push({
+      id,
+      title: asTrimmedString(item.title ?? null),
+      content,
+      authorName: asTrimmedString(item.authorName ?? null),
+      imageUrl: asTrimmedString(item.imageUrl ?? null),
+      isSystem: asBoolean(item.isSystem),
+      feedType: asTrimmedString(item.feedType ?? null),
+      replyCount: asNumber(item.replyCount),
+      createdAt: asTrimmedString(item.createdAt ?? null),
+    });
+  }
+  return posts;
+}
+
+/**
  * Election detail reference accepted by GET /api/elections?id= (AHDGame
  * resolveElection accepts a 24-hex ObjectId or a seatId like US-senate-PA-1;
  * see isSeatId in src/lib/elections/resolveElection.ts). Bounded so the id
