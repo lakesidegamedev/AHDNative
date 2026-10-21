@@ -643,6 +643,32 @@ export function parseCountryOverview(bodyText: string): MpNationOverviewView | n
 }
 
 /**
+ * One region of a nation, from GET /api/country/[code]/states.
+ */
+export interface MpRegionView {
+  id: string;
+  name: string;
+}
+
+/**
+ * country-states: the nation's regions. A malformed entry invalidates the
+ * whole projection, the way the nation directory does.
+ */
+export function parseCountryStates(bodyText: string): MpRegionView[] | null {
+  const record = asRecord(parseJsonBody(bodyText));
+  if (!record || !Array.isArray(record.states)) return null;
+  const regions: MpRegionView[] = [];
+  for (const entry of record.states) {
+    const item = asRecord(entry);
+    const id = item ? asTrimmedString(item.id) : null;
+    const name = item ? asTrimmedString(item.name) : null;
+    if (!item || !id || !name) return null;
+    regions.push({ id, name });
+  }
+  return regions;
+}
+
+/**
  * Election detail reference accepted by GET /api/elections?id= (AHDGame
  * resolveElection accepts a 24-hex ObjectId or a seatId like US-senate-PA-1;
  * see isSeatId in src/lib/elections/resolveElection.ts). Bounded so the id

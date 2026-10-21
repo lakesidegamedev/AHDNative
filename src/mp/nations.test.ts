@@ -151,3 +151,27 @@ describe("MpModeSession loadNationOverview", () => {
     expect(snapshot.error).toBeNull();
   });
 });
+
+describe("MpModeSession loadCountryRegions", () => {
+  it("projects the nation regions", async () => {
+    const { host, calls } = scriptedHost(
+      enterScripts({ "country-states": [JSON.stringify({ states: [{ id: "CA", name: "California" }] })] }),
+    );
+    const session = new MpModeSession(host);
+    await session.enter();
+    const snapshot = await session.loadCountryRegions("US");
+    expect(snapshot.nationRegions).toEqual([{ id: "CA", name: "California" }]);
+    expect(snapshot.phase).toBe("ready");
+    expect(calls.filter((call) => call === "fetch:country-states")).toHaveLength(1);
+  });
+
+  it("never sends an invalid country code and keeps the session intact", async () => {
+    const { host, calls } = scriptedHost(enterScripts({}));
+    const session = new MpModeSession(host);
+    await session.enter();
+    const snapshot = await session.loadCountryRegions("usa");
+    expect(snapshot.nationRegions).toBeNull();
+    expect(snapshot.phase).toBe("ready");
+    expect(calls.filter((call) => call === "fetch:country-states")).toHaveLength(0);
+  });
+});

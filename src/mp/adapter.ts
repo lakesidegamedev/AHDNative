@@ -6,6 +6,7 @@ import {
   parseClientStatus,
   parseCountries,
   parseCountryOverview,
+  parseCountryStates,
   parseCorporationDetail,
   parseElectionDetail,
   parseExecuteResult,
@@ -45,6 +46,7 @@ import {
   type MpStatusView,
   type MpNationView,
   type MpNationOverviewView,
+  type MpRegionView,
   type MpUnionDetailView,
 } from "./validators";
 import type { MpMutateOpId } from "./endpoints";
@@ -119,6 +121,11 @@ export interface MpSnapshot {
    * /api/country/[code]/overview-counts. Loaded on demand.
    */
   nationOverview: MpNationOverviewView | null;
+  /**
+   * The selected nation's regions, from /api/country/[code]/states. Loaded
+   * on demand with the nation's figures.
+   */
+  nationRegions: MpRegionView[] | null;
   /** Last server-confirmed notice (action result); cleared on next load. */
   notice: string | null;
   /** Last human-readable failure; cleared when a call succeeds. */
@@ -147,6 +154,7 @@ const INITIAL_SNAPSHOT: MpSnapshot = {
   status: null,
   nations: null,
   nationOverview: null,
+  nationRegions: null,
   notice: null,
   error: null,
   retryAfter: null,
@@ -163,9 +171,9 @@ export const MP_MAIL_LIMIT = 50;
 
 function emptyAuthed(): Pick<
   MpSnapshot,
-  "character" | "savings" | "turn" | "capabilities" | "electionDetail" | "corporationDetail" | "unionDetail" | "cabinetDetail" | "governorDetail" | "inbox" | "mailInbox" | "mailSent" | "presence" | "status" | "nations" | "nationOverview"
+  "character" | "savings" | "turn" | "capabilities" | "electionDetail" | "corporationDetail" | "unionDetail" | "cabinetDetail" | "governorDetail" | "inbox" | "mailInbox" | "mailSent" | "presence" | "status" | "nations" | "nationOverview" | "nationRegions"
 > {
-  return { character: null, savings: null, turn: null, capabilities: null, electionDetail: null, corporationDetail: null, unionDetail: null, cabinetDetail: null, governorDetail: null, inbox: null, mailInbox: null, mailSent: null, presence: null, status: null, nations: null, nationOverview: null };
+  return { character: null, savings: null, turn: null, capabilities: null, electionDetail: null, corporationDetail: null, unionDetail: null, cabinetDetail: null, governorDetail: null, inbox: null, mailInbox: null, mailSent: null, presence: null, status: null, nations: null, nationOverview: null, nationRegions: null };
 }
 
 export class MpModeSession {
@@ -562,6 +570,37 @@ export class MpModeSession {
       const nationOverview = parseCountryOverview(result.bodyText);
       if (!nationOverview) return this.get();
       return this.set({ nationOverview });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
+   * Read the regions of one nation (#510 world destinations). GET
+   * /api/country/[code]/states is public; the code is checked here and
+   * again by the Rust bridge. A failed read keeps the previous regions and
+   * never fails the session. Never throws.
+   */
+  async loadCountryRegions(code: unknown): Promise<MpSnapshot> {
+    if (!isCountryCode(code)) return this.get();
+    try {
+      const result = await mpFetch(
+        this.host,
+        "country-states",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        code,
+      );
+      if (result.kind !== "ok") return this.get();
+      const nationRegions = parseCountryStates(result.bodyText);
+      if (!nationRegions) return this.get();
+      return this.set({ nationRegions });
     } catch {
       return this.get();
     }

@@ -173,6 +173,10 @@ pub enum MpFetchOp {
     /// invalid country). The country code is a two-letter COUNTRY_CONFIGS
     /// key like US/UK/DE/JP/CN; see [`is_country_code`].
     CountryOverview,
+    /// The nation's regions; GET /api/country/[code]/states (public, no
+    /// auth, 400 on an invalid country). The country code is a two-letter
+    /// COUNTRY_CONFIGS key; see [`is_country_code`].
+    CountryStates,
 }
 
 impl MpFetchOp {
@@ -197,6 +201,7 @@ impl MpFetchOp {
             "governor-detail" => Some(Self::GovernorDetail),
             "countries" => Some(Self::Countries),
             "country-overview" => Some(Self::CountryOverview),
+            "country-states" => Some(Self::CountryStates),
             _ => None,
         }
     }
@@ -222,6 +227,7 @@ impl MpFetchOp {
             Self::GovernorDetail => "/api/country",
             Self::Countries => "/api/countries",
             Self::CountryOverview => "/api/country",
+            Self::CountryStates => "/api/country",
         }
     }
 }
@@ -696,6 +702,29 @@ fn is_country_overview_path(path: &str) -> bool {
         return false;
     };
     let Some(code) = rest.strip_suffix("/overview-counts") else {
+        return false;
+    };
+    is_country_code(code)
+}
+
+/// Build the exact nation regions request path from a validated country key.
+fn fetch_country_states_path(country_code: &str) -> Result<String, String> {
+    if !is_country_code(country_code) {
+        return Err(error::BAD_ARG.to_string());
+    }
+    Ok(format!(
+        "{}/{}/states",
+        MpFetchOp::CountryStates.path(),
+        country_code.to_ascii_uppercase()
+    ))
+}
+
+/// True for the pinned nation regions path shape.
+fn is_country_states_path(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/country/") else {
+        return false;
+    };
+    let Some(code) = rest.strip_suffix("/states") else {
         return false;
     };
     is_country_code(code)
@@ -1178,7 +1207,8 @@ fn is_allowlisted_call(method: &str, path_and_query: &str) -> bool {
             query.is_none()
                 && (is_cabinet_path(path)
                     || is_governor_path(path)
-                    || is_country_overview_path(path))
+                    || is_country_overview_path(path)
+                    || is_country_states_path(path))
         }
         ("POST", "/api/actions/execute") | ("PATCH", "/api/notifications") => query.is_none(),
         ("PUT", "/api/notifications/preferences") => query.is_none(),
@@ -1880,6 +1910,25 @@ pub async fn mp_session_fetch(
                 .ok_or_else(|| error::BAD_ARG.to_string())?;
             fetch_country_overview_path(country)?
         }
+        MpFetchOp::CountryStates => {
+            if limit.is_some()
+                || offset.is_some()
+                || detail.election_id.is_some()
+                || detail.corporation_id.is_some()
+                || detail.union_id.is_some()
+                || detail.cabinet_country_code.is_some()
+                || detail.cabinet_position_id.is_some()
+                || detail.governor_country_code.is_some()
+                || detail.governor_state_id.is_some()
+            {
+                return Err(error::UNSUPPORTED_OP.to_string());
+            }
+            let country = detail
+                .country_code
+                .as_deref()
+                .ok_or_else(|| error::BAD_ARG.to_string())?;
+            fetch_country_states_path(country)?
+        }
         _ => {
             if detail.election_id.is_some()
                 || detail.corporation_id.is_some()
@@ -2014,6 +2063,20 @@ mod tests {
         assert!(fetch_country_overview_path("usa").is_err());
         assert!(fetch_country_overview_path("U1").is_err());
         assert!(fetch_country_overview_path("").is_err());
+
+        assert_eq!(
+            MpFetchOp::from_id("country-states"),
+            Some(MpFetchOp::CountryStates)
+        );
+        assert_eq!(
+            fetch_country_states_path("uk").unwrap(),
+            "/api/country/UK/states"
+        );
+        assert!(is_allowlisted_call("GET", "/api/country/UK/states"));
+        assert!(!is_allowlisted_call("GET", "/api/countries/UK/states"));
+        assert!(!is_allowlisted_call("GET", "/api/country/UKA/states"));
+        assert!(!is_allowlisted_call("GET", "/api/country/UK/states?x=1"));
+        assert!(fetch_country_states_path("uk1").is_err());
     }
 
     #[test]

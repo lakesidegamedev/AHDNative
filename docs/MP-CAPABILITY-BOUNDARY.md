@@ -97,13 +97,14 @@ dead MP controls offline and no synthesized server state anywhere:
   refreshes it on the reference cadence (60s while visible, plus a new turn
   and foreground return).
 - World reads are public and separate from the character projection:
-  `GET /api/countries` answers the runtime nation directory, and
+  `GET /api/countries` answers the runtime nation directory,
   `GET /api/country/[code]/overview-counts` answers one nation's headline
   figures (parties, politicians, elections, bills, regions, GDP, budget
-  balance, unions, prime rate). The Rust bridge pins the country code to a
-  two-letter key, and the adapter refuses to send anything else. Both
-  loads sit outside enter/refresh: a failure keeps the last good view and
-  never expires the session.
+  balance, unions, prime rate), and `GET /api/country/[code]/states`
+  answers that nation's regions. The Rust bridge pins the country code to
+  a two-letter key, and the adapter refuses to send anything else. All
+  three loads sit outside enter/refresh: a failure keeps the last good
+  view and never expires the session.
 - Reconnect and session restore: mount chains enter, then on-demand mail,
   then presence; manual Refresh re-reads authoritative state and refreshes
   presence; foreground return re-probes while waiting for a session (#149).

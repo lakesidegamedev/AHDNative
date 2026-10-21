@@ -62,6 +62,10 @@
  *   unions?,activeReferendums?,totalReferendums?,coldWarDefcon?,
  *   navairFormations?}. Every figure degrades to null independently on the
  *   server; Native projects only the figures it renders.
+ * - country-states     GET /api/country/[code]/states
+ *   public, no auth; 400 on an invalid country. The nation's regions
+ *   (AHDGame src/app/api/country/[code]/states/route.ts): 200
+ *   {states:[{id,name}]}. Native projects the id and name only.
  * - turn-status       /api/game/turn/status    public; 404 uninitialized
  *   {singleplayer,currentTurn,currentYear,startingYear,preset,
  *   preIterationTurns,preIterationActive,isActive,isProcessing,
@@ -349,7 +353,8 @@ export type MpFetchOpId =
   | "cabinet-detail"
   | "governor-detail"
   | "countries"
-  | "country-overview";
+  | "country-overview"
+  | "country-states";
 
 export type MpMutateOpId =
   | "execute-action"

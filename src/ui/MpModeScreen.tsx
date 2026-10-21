@@ -77,6 +77,7 @@ const IDLE: MpSnapshot = {
   status: null,
   nations: null,
   nationOverview: null,
+  nationRegions: null,
   notice: null,
   error: null,
   retryAfter: null,
@@ -540,7 +541,12 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
    * failures stay on the shared error display with the directory intact. */
   function openNation(target: string) {
     setNoticeScope("general");
-    void run((s) => s.loadNationOverview(target)).then((next) => {
+    void run(async (s) => {
+      const withOverview = await s.loadNationOverview(target);
+      // The nation's regions ride the same drill-in; a failed region read
+      // keeps the nation's figures and reports honestly.
+      return withOverview.nationOverview ? await s.loadCountryRegions(target) : withOverview;
+    }).then((next) => {
       if (next?.nationOverview) {
         setNationSelected(target);
         window.setTimeout(() => jumpTo("mp-nations"), 0);
@@ -731,6 +737,7 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
     ? nationList.find((nation) => nation.id === nationSelected) ?? null
     : null;
   const nationOverview = selectedNation ? snapshot.nationOverview : null;
+  const nationRegions = selectedNation ? snapshot.nationRegions : null;
   const homeCountryId = snapshot.character?.countryId ?? snapshot.capabilities?.characterCountryId ?? null;
   const turnFounding = snapshot.turn?.preIterationActive === true;
   /* Footer resource parity: the SP footer reads campaign funds from the same
@@ -1238,6 +1245,16 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
                 {nationOverview.primeRate !== null && (<><dt>Prime rate</dt><dd>{nationOverview.primeRate + "%"}</dd></>)}
               </>)}
             </dl>
+            {nationRegions && nationRegions.length > 0 && (
+              <>
+              <h3 className="ahd-h3">{selectedNation.regionLabelPlural ?? "Regions"}</h3>
+              <ul className="ahd-mp-list" aria-label={"Regions of " + selectedNation.name}>
+                {nationRegions.map((region) => (
+                  <li key={region.id}>{region.name}</li>
+                ))}
+              </ul>
+              </>
+            )}
             </article>
             </>
           ) : (

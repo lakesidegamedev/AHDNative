@@ -133,7 +133,13 @@ async function settleMount() {
 
 describe("MpModeScreen Nations destination", () => {
   it("lists the runtime nations and opens one with the server's own figures", async () => {
-    const { host, calls } = fakeHost(mountScript({ countries: [countries], "country-overview": [overview] }));
+    const { host, calls } = fakeHost(
+      mountScript({
+        countries: [countries],
+        "country-overview": [overview],
+        "country-states": [JSON.stringify({ states: [{ id: "CA", name: "California" }, { id: "NY", name: "New York" }] })],
+      }),
+    );
     render(<MpModeScreen host={host} onExit={() => {}} />);
     await settleMount();
 
@@ -166,6 +172,11 @@ describe("MpModeScreen Nations destination", () => {
     expect(within(card).getByText("$25,000,000M")).toBeInTheDocument();
     expect(within(card).getByText("42")).toBeInTheDocument();
     expect(calls).toContain("fetch:country-overview");
+    // The nation's regions ride the same drill-in.
+    const regions = screen.getByRole("list", { name: "Regions of United States" });
+    expect(within(regions).getByText("California")).toBeInTheDocument();
+    expect(within(regions).getByText("New York")).toBeInTheDocument();
+    expect(calls).toContain("fetch:country-states");
   });
 
   it("reports an honest empty state when the server answers no directory", async () => {

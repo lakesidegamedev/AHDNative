@@ -13,6 +13,7 @@ import {
   parseClientStatus,
   parseCountries,
   parseCountryOverview,
+  parseCountryStates,
   parseCorporationDetail,
   parseElectionDetail,
   parseExecuteResult,
@@ -445,6 +446,25 @@ describe("parseCountries", () => {
     expect(parseCountries(JSON.stringify({ countries: [{ id: "US" }] }))).toBeNull();
     expect(parseCountries(JSON.stringify({ countries: "nope" }))).toBeNull();
     expect(parseCountries("not json")).toBeNull();
+  });
+});
+
+describe("parseCountryStates", () => {
+  it("projects the nation regions", () => {
+    expect(
+      parseCountryStates(
+        JSON.stringify({ states: [{ id: "CA", name: "California" }, { id: "NY", name: "New York" }] }),
+      ),
+    ).toEqual([
+      { id: "CA", name: "California" },
+      { id: "NY", name: "New York" },
+    ]);
+  });
+
+  it("fails closed on a malformed region list", () => {
+    expect(parseCountryStates(JSON.stringify({ states: [{ id: "CA" }] }))).toBeNull();
+    expect(parseCountryStates(JSON.stringify({ states: {} }))).toBeNull();
+    expect(parseCountryStates("not json")).toBeNull();
   });
 });
 

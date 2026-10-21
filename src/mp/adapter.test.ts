@@ -203,6 +203,7 @@ describe("MpModeSession enter", () => {
       status: null,
       nations: null,
       nationOverview: null,
+      nationRegions: null,
       notice: null,
       error: null,
       retryAfter: null,

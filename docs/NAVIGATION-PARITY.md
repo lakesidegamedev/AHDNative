@@ -798,6 +798,10 @@ Delivered:
   elections, bills, regions, GDP, budget balance, unions and prime rate.
   Every figure is the server's; anything the server did not report reads
   "Not reported".
+- The same drill-in reads `GET /api/country/[code]/states` and lists the
+  nation's regions, the way the singleplayer Regions destination lists
+  them. A failed region read keeps the nation's figures and reports
+  honestly.
 - The Rust bridge pins the country code to a two-letter key and the
   transport allowlist accepts only the pinned path shape; the adapter
   refuses to send anything else.
