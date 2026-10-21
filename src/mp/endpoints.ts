@@ -99,6 +99,11 @@
  *   {results:[{id,userId,name,username,discordUsername,party,homeState,
  *   avatarUrl,currentOffice}]}. The route ignores queries shorter than two
  *   characters; the bridge pins the limit at 10 and encodes the fragment.
+ * - client-status-full GET /api/client-status?layout=full
+ *   requireBasicAuth; 401 signed out. The same read in its wide layout:
+ *   it adds the per-turn campaign income breakdown the minimal layout omits,
+ *   at the cost of the reference's enrichment queries, so Native reads it
+ *   on demand (when the funds details are opened) and never polls it.
  * - turn-status       /api/game/turn/status    public; 404 uninitialized
  *   {singleplayer,currentTurn,currentYear,startingYear,preset,
  *   preIterationTurns,preIterationActive,isActive,isProcessing,
@@ -373,6 +378,7 @@ export type MpFetchOpId =
   | "savings-accounts"
   | "client-nav"
   | "client-status"
+  | "client-status-full"
   | "turn-status"
   | "players-online"
   | "game-time"

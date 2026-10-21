@@ -481,6 +481,27 @@ export interface MpStatusView {
   donorBaseLevel: number | null;
   politicalInfluence: number | null;
   favorability: number | null;
+  /**
+   * The per-turn campaign income breakdown. The minimal status layout does
+   * not carry it, so it is null until the full layout is read on demand.
+   */
+  campaignIncomeBreakdown: MpCampaignIncomeBreakdown | null;
+}
+
+/**
+ * The reference's per-turn campaign income lines (AHDGame
+ * src/app/api/client-status/route.ts). Every figure is the server's own.
+ */
+export interface MpCampaignIncomeBreakdown {
+  populationTier: string | null;
+  baseGen: number | null;
+  donorBonus: number | null;
+  officeBonus: number | null;
+  unionContribution: number | null;
+  stateTax: number | null;
+  nationalTax: number | null;
+  totalTax: number | null;
+  netPerTurn: number | null;
 }
 
 function statusNumber(value: unknown): number | null {
@@ -510,6 +531,7 @@ export function parseClientStatus(bodyText: string): MpStatusView | null {
   const politicalInfluence = statusNumber(record.politicalInfluence);
   const favorability = statusNumber(record.favorability);
   const homeCurrency = asTrimmedString(record.homeCurrency ?? null);
+  const breakdown = asRecord(record.campaignIncomeBreakdown);
   const scalars = [
     actions,
     actionCap,
@@ -535,6 +557,19 @@ export function parseClientStatus(bodyText: string): MpStatusView | null {
     donorBaseLevel,
     politicalInfluence,
     favorability,
+    campaignIncomeBreakdown: breakdown
+      ? {
+          populationTier: asTrimmedString(breakdown.populationTier ?? null),
+          baseGen: statusNumber(breakdown.baseGen),
+          donorBonus: statusNumber(breakdown.donorBonus),
+          officeBonus: statusNumber(breakdown.officeBonus),
+          unionContribution: statusNumber(breakdown.unionContribution),
+          stateTax: statusNumber(breakdown.stateTax),
+          nationalTax: statusNumber(breakdown.nationalTax),
+          totalTax: statusNumber(breakdown.totalTax),
+          netPerTurn: statusNumber(breakdown.netPerTurn),
+        }
+      : null,
   };
 }
 

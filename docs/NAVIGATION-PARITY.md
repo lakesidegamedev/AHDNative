@@ -963,3 +963,29 @@ tests: the search fills the recipient, a failed search keeps the draft) and
 last-good-matches posture) plus the Rust path/allowlist assertions in
 `mp_session::tests::world_reads_resolve_to_pinned_paths`. No
 physical-iPhone evidence is claimed; #363/#436 remain open.
+
+## 29. MP campaign income breakdown (#510)
+
+The reference status bar shows the per-turn campaign income lines in the
+funds details: base generation, donor bonus, office bonus, union
+contribution, state and national tax, and the net per turn. Multiplayer
+showed only the balance.
+
+Delivered:
+
+- A new audited read, `GET /api/client-status?layout=full`, answers the
+  breakdown. The Rust bridge pins the layout (the wide layout runs the
+  reference's enrichment queries, so it is never polled) and the transport
+  allowlist accepts only the two pinned layouts for that path.
+- Opening the funds details reads the wide payload on demand and renders the
+  server's own lines: base generation, donor bonus, office bonus, union
+  contribution, state tax, national tax and net per turn. A figure the
+  server did not report reads "not reported".
+- A failed wide read leaves the details and the session intact.
+
+Focused evidence: `src/ui/MpIncomeBreakdown510.test.tsx` (2 rendered tests:
+the breakdown is read on demand and shown, a failed wide read stays
+honest), `src/mp/status.test.ts` (the breakdown projection and the
+last-good-view posture) and the Rust test
+`mp_session::tests::full_status_read_pins_the_full_layout`. No
+physical-iPhone evidence is claimed; #363/#436 remain open.

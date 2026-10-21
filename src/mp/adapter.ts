@@ -711,6 +711,26 @@ export class MpModeSession {
   }
 
   /**
+   * Read the full status payload (#510 campaign income breakdown). The wide
+   * layout carries the per-turn campaign income lines the minimal layout
+   * omits, at the cost of the reference's enrichment queries, so it is read
+   * on demand and never polled. Every failure keeps the last good view and
+   * never fails the session. Never throws.
+   */
+  async loadFullStatus(): Promise<MpSnapshot> {
+    if (!this.snapshot.userId || this.snapshot.phase !== "ready") return this.get();
+    try {
+      const result = await mpFetch(this.host, "client-status-full");
+      if (result.kind !== "ok") return this.get();
+      const status = parseClientStatus(result.bodyText);
+      if (!status) return this.get();
+      return this.set({ status });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
    * Search characters by name for the mail recipient picker (#510). The
    * read is public; the fragment is validated here and again by the Rust
    * bridge, which percent-encodes it. A failed search keeps the previous

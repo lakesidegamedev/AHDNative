@@ -78,6 +78,64 @@ function enterScripts(extra?: Record<string, Array<string | { reject: string }>>
   };
 }
 
+describe("MpModeSession loadFullStatus", () => {
+  const full = JSON.stringify({
+    name: "Ada",
+    actions: 3,
+    funds: 1200,
+    cashOnHand: 1000,
+    homeCurrency: "USD",
+    campaignIncomeBreakdown: {
+      populationTier: "large",
+      baseGen: 500,
+      donorBonus: 120,
+      officeBonus: 80,
+      unionContribution: 40,
+      stateTax: 60,
+      nationalTax: 90,
+      totalTax: 150,
+      netPerTurn: 590,
+    },
+  });
+
+  it("projects the per-turn campaign income lines", async () => {
+    const { host, calls } = scriptedHost(
+      enterScripts({ "client-status-full": [full] }),
+    );
+    const session = new MpModeSession(host);
+    await session.enter();
+    const snapshot = await session.loadFullStatus();
+    expect(snapshot.status?.campaignIncomeBreakdown?.netPerTurn).toBe(590);
+    expect(snapshot.phase).toBe("ready");
+    expect(snapshot.error).toBeNull();
+    expect(calls.filter((call) => call === "fetch:client-status-full")).toHaveLength(1);
+  });
+
+  it("keeps the last good view when the wide read fails", async () => {
+    const { host } = scriptedHost(
+      enterScripts({
+        "client-status-full": [full, { reject: "remote-error:500:Server error" }],
+      }),
+    );
+    const session = new MpModeSession(host);
+    await session.enter();
+    await session.loadFullStatus();
+    const snapshot = await session.loadFullStatus();
+    expect(snapshot.status?.campaignIncomeBreakdown?.netPerTurn).toBe(590);
+    expect(snapshot.phase).toBe("ready");
+    expect(snapshot.error).toBeNull();
+  });
+
+  it("does nothing without a signed-in session", async () => {
+    const { host, calls } = scriptedHost({ fetch: {} });
+    const session = new MpModeSession(host);
+    const snapshot = await session.loadFullStatus();
+    expect(snapshot.status).toBeNull();
+    expect(snapshot.phase).toBe("idle");
+    expect(calls).toEqual([]);
+  });
+});
+
 describe("MpModeSession loadStatus", () => {
   it("projects the status scalars and keeps the loaded session intact", async () => {
     const { host, calls } = scriptedHost(

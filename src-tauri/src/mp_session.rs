@@ -112,6 +112,12 @@ pub enum MpFetchOp {
     /// influence and favorability the footer shows, and skips the
     /// corporation/election/income enrichment the wider layouts run.
     ClientStatus,
+    /// The full status read; GET /api/client-status?layout=full
+    /// (requireBasicAuth, 401 signed out). Read on demand when the
+    /// player asks for the per-turn campaign income breakdown, which the
+    /// minimal layout does not carry. The wider layout runs the
+    /// reference's enrichment queries, so it is never polled.
+    ClientStatusFull,
     /// Turn/year/processing/countdown; public but fresher via the session.
     TurnStatus,
     /// Players active within the last hour; public, no session required.
@@ -205,6 +211,7 @@ impl MpFetchOp {
             "savings-accounts" => Some(Self::SavingsAccounts),
             "client-nav" => Some(Self::ClientNav),
             "client-status" => Some(Self::ClientStatus),
+            "client-status-full" => Some(Self::ClientStatusFull),
             "turn-status" => Some(Self::TurnStatus),
             "players-online" => Some(Self::PlayersOnline),
             "game-time" => Some(Self::GameTime),
@@ -236,6 +243,7 @@ impl MpFetchOp {
             Self::SavingsAccounts => "/api/character/savings",
             Self::ClientNav => "/api/client-nav",
             Self::ClientStatus => "/api/client-status",
+            Self::ClientStatusFull => "/api/client-status",
             Self::TurnStatus => "/api/game/turn/status",
             Self::PlayersOnline => "/api/players/online",
             Self::GameTime => "/api/game-time",
@@ -612,14 +620,19 @@ fn fetch_path_and_query(
     offset: Option<u32>,
 ) -> Result<String, String> {
     match op {
-        MpFetchOp::ClientStatus => {
+        MpFetchOp::ClientStatus | MpFetchOp::ClientStatusFull => {
             if limit.is_some() || offset.is_some() {
                 return Err(error::UNSUPPORTED_OP.to_string());
             }
             // The layout is pinned, never caller-supplied: the minimal
             // layout answers the footer scalars without the wide
-            // enrichment queries.
-            Ok(format!("{}?layout=minimal", op.path()))
+            // enrichment queries, and the full layout is read on demand
+            // for the campaign income breakdown.
+            let layout = match op {
+                MpFetchOp::ClientStatus => "minimal",
+                _ => "full",
+            };
+            Ok(format!("{}?layout={}", op.path(), layout))
         }
         MpFetchOp::NewsFeed => {
             let limit = limit.ok_or_else(|| error::BAD_ARG.to_string())?;
@@ -1363,8 +1376,10 @@ fn is_allowlisted_call(method: &str, path_and_query: &str) -> bool {
         | ("GET", "/api/players/online")
         | ("GET", "/api/admin/maintenance")
         | ("GET", "/api/game-time") => query.is_none(),
-        // The status read only ever runs with the pinned minimal layout.
-        ("GET", "/api/client-status") => matches!(query, Some("layout=minimal")),
+        // The status read only ever runs with a pinned layout.
+        ("GET", "/api/client-status") => {
+            matches!(query, Some("layout=minimal") | Some("layout=full"))
+        }
         ("GET", "/api/countries") => query.is_none(),
         ("GET", "/api/characters/search") => match query {
             Some(query) => is_character_search_pair(query),
@@ -2162,6 +2177,23 @@ pub async fn mp_session_fetch(
                 .ok_or_else(|| error::BAD_ARG.to_string())?;
             fetch_country_politicians_path(country)?
         }
+        MpFetchOp::ClientStatusFull => {
+            if limit.is_some()
+                || offset.is_some()
+                || detail.election_id.is_some()
+                || detail.corporation_id.is_some()
+                || detail.union_id.is_some()
+                || detail.cabinet_country_code.is_some()
+                || detail.cabinet_position_id.is_some()
+                || detail.governor_country_code.is_some()
+                || detail.governor_state_id.is_some()
+                || detail.country_code.is_some()
+                || detail.search_query.is_some()
+            {
+                return Err(error::UNSUPPORTED_OP.to_string());
+            }
+            fetch_path_and_query(op, limit, offset)?
+        }
         MpFetchOp::CharacterSearch => {
             if limit.is_some()
                 || offset.is_some()
@@ -2310,9 +2342,12 @@ mod tests {
             "/api/client-status?layout=minimal"
         ));
         assert!(!is_allowlisted_call("GET", "/api/client-status"));
+        // The full layout is allowlisted too, but only for the on-demand
+        // income breakdown read.
+        assert!(is_allowlisted_call("GET", "/api/client-status?layout=full"));
         assert!(!is_allowlisted_call(
             "GET",
-            "/api/client-status?layout=full"
+            "/api/client-status?layout=wide"
         ));
         assert!(!is_allowlisted_call(
             "GET",
@@ -2322,6 +2357,27 @@ mod tests {
             "POST",
             "/api/client-status?layout=minimal"
         ));
+    }
+
+    #[test]
+    fn full_status_read_pins_the_full_layout() {
+        assert_eq!(
+            MpFetchOp::from_id("client-status-full"),
+            Some(MpFetchOp::ClientStatusFull)
+        );
+        assert_eq!(
+            fetch_path_and_query(MpFetchOp::ClientStatusFull, None, None).unwrap(),
+            "/api/client-status?layout=full"
+        );
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/client-status?layout=full&x=1"
+        ));
+        assert!(!is_allowlisted_call(
+            "POST",
+            "/api/client-status?layout=full"
+        ));
+        assert!(fetch_path_and_query(MpFetchOp::ClientStatusFull, Some(5), None).is_err());
     }
 
     #[test]

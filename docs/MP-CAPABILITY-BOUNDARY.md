@@ -95,7 +95,10 @@ dead MP controls offline and no synthesized server state anywhere:
   `loadStatus` sits outside enter/refresh, so every failure keeps the last
   good figures without touching phase or error state, and the screen
   refreshes it on the reference cadence (60s while visible, plus a new turn
-  and foreground return).
+  and foreground return). The wide layout of the same read
+  (`?layout=full`) carries the per-turn campaign income breakdown; because
+  it runs the reference's enrichment queries, it is read on demand when the
+  funds details are opened and never polled.
 - World reads are public and separate from the character projection:
   `GET /api/countries` answers the runtime nation directory,
   `GET /api/country/[code]/overview-counts` answers one nation's headline

@@ -511,6 +511,18 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
     });
   }, [activeSection, snapshot.nations]);
 
+  /* Open a resource's details. The funds breakdown lives in the wide
+   * status layout, so opening the funds details reads it on demand
+   * instead of polling the heavier payload. */
+  function openResourceDetails(id: string) {
+    setOpenResource(openResource === id ? null : id);
+    if (id === "funds" && !snapshot.status?.campaignIncomeBreakdown) {
+      void sessionRef.current!.loadFullStatus().then((next) => {
+        setSnapshot(next);
+      });
+    }
+  }
+
   /* Open one allowlisted support destination. A refused open reports
    * honestly instead of leaving a dead button behind. */
   async function openSupport(destination: SupportDestination) {
@@ -908,6 +920,10 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
   const statusFavorability = snapshot.status?.favorability ?? null;
   const statusCurrency = snapshot.status?.homeCurrency ?? null;
   const moneyLabel = (value: number) => (statusCurrency ? `${value.toLocaleString("en-US")} ${statusCurrency}` : value.toLocaleString("en-US"));
+  /* The campaign income lines the server reported, or an honest "not
+   * reported" when the figure is absent. */
+  const incomeBreakdown = snapshot.status?.campaignIncomeBreakdown ?? null;
+  const incomeLine = (value: number | null) => (value === null ? "not reported" : moneyLabel(value));
 
   const visibleElection = !needsSession && electionOpen ? snapshot.electionDetail : null;
   const visibleCorporation = !needsSession && corporationOpen ? snapshot.corporationDetail : null;
@@ -2085,19 +2101,19 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
             {snapshot.presence && <span className="ahd-muted">{snapshot.presence.online} online</span>}
           </div>}
           {snapshot.character && <div className="ahd-status-resources ahd-mp-resources" role="group" aria-label="Resources">
-            {statusActions !== null && <button type="button" className="ahd-status-btn" aria-label={`Action points: ${statusActions}`} aria-expanded={openResource === "ap"} aria-controls={openResource === "ap" ? "ahd-mp-resource-ap" : undefined} title={snapshot.status?.actionCap !== null && snapshot.status?.actionCap !== undefined ? `Action cap: ${snapshot.status.actionCap}` : undefined} onClick={() => setOpenResource(openResource === "ap" ? null : "ap")}>
+            {statusActions !== null && <button type="button" className="ahd-status-btn" aria-label={`Action points: ${statusActions}`} aria-expanded={openResource === "ap"} aria-controls={openResource === "ap" ? "ahd-mp-resource-ap" : undefined} title={snapshot.status?.actionCap !== null && snapshot.status?.actionCap !== undefined ? `Action cap: ${snapshot.status.actionCap}` : undefined} onClick={() => openResourceDetails("ap")}>
               <span className="ahd-status-btn-label">AP</span><span className="ahd-mono ahd-status-btn-value">{statusActions}</span>
             </button>}
-            {statusFunds !== null && <button type="button" className="ahd-status-btn" aria-label={`Campaign funds: ${moneyLabel(statusFunds)}`} aria-expanded={openResource === "funds"} aria-controls={openResource === "funds" ? "ahd-mp-resource-funds" : undefined} onClick={() => setOpenResource(openResource === "funds" ? null : "funds")}>
+            {statusFunds !== null && <button type="button" className="ahd-status-btn" aria-label={`Campaign funds: ${moneyLabel(statusFunds)}`} aria-expanded={openResource === "funds"} aria-controls={openResource === "funds" ? "ahd-mp-resource-funds" : undefined} onClick={() => openResourceDetails("funds")}>
               <span className="ahd-status-btn-label">Funds</span><span className="ahd-mono ahd-status-btn-value">{statusFunds.toLocaleString("en-US", { notation: "compact" })}</span>
             </button>}
-            {statusCash !== null && <button type="button" className="ahd-status-btn" aria-label={`Cash on hand: ${moneyLabel(statusCash)}`} aria-expanded={openResource === "cash"} aria-controls={openResource === "cash" ? "ahd-mp-resource-cash" : undefined} onClick={() => setOpenResource(openResource === "cash" ? null : "cash")}>
+            {statusCash !== null && <button type="button" className="ahd-status-btn" aria-label={`Cash on hand: ${moneyLabel(statusCash)}`} aria-expanded={openResource === "cash"} aria-controls={openResource === "cash" ? "ahd-mp-resource-cash" : undefined} onClick={() => openResourceDetails("cash")}>
               <span className="ahd-status-btn-label">Cash</span><span className="ahd-mono ahd-status-btn-value">{statusCash.toLocaleString("en-US", { notation: "compact" })}</span>
             </button>}
-            {statusInfluence !== null && <button type="button" className="ahd-status-btn" aria-label={`Influence: ${statusInfluence}`} aria-expanded={openResource === "influence"} aria-controls={openResource === "influence" ? "ahd-mp-resource-influence" : undefined} onClick={() => setOpenResource(openResource === "influence" ? null : "influence")}>
+            {statusInfluence !== null && <button type="button" className="ahd-status-btn" aria-label={`Influence: ${statusInfluence}`} aria-expanded={openResource === "influence"} aria-controls={openResource === "influence" ? "ahd-mp-resource-influence" : undefined} onClick={() => openResourceDetails("influence")}>
               <span className="ahd-status-btn-label">INF</span><span className="ahd-mono ahd-status-btn-value">{statusInfluence}</span>
             </button>}
-            {statusFavorability !== null && <button type="button" className="ahd-status-btn" aria-label={`Favorability: ${statusFavorability}`} aria-expanded={openResource === "favorability"} aria-controls={openResource === "favorability" ? "ahd-mp-resource-favorability" : undefined} onClick={() => setOpenResource(openResource === "favorability" ? null : "favorability")}>
+            {statusFavorability !== null && <button type="button" className="ahd-status-btn" aria-label={`Favorability: ${statusFavorability}`} aria-expanded={openResource === "favorability"} aria-controls={openResource === "favorability" ? "ahd-mp-resource-favorability" : undefined} onClick={() => openResourceDetails("favorability")}>
               <span className="ahd-status-btn-label">FAV</span><span className="ahd-mono ahd-status-btn-value">{statusFavorability}</span>
             </button>}
             {snapshot.inbox && <button type="button" className="ahd-status-btn" aria-label={`Notifications: ${snapshot.inbox.unreadCount} unread`} onClick={() => jumpTo("mp-inbox")}>
@@ -2139,12 +2155,25 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
                   </span>
                 ) : null}
                 {openResource === "funds" ? (
+                  <>
                   <span>
                     Campaign funds: {statusFunds === null ? "not reported" : moneyLabel(statusFunds)}.
                     {snapshot.status?.campaignFundsStored !== null && snapshot.status?.campaignFundsStored !== undefined
                       ? " Stored balance: " + moneyLabel(snapshot.status.campaignFundsStored) + "."
                       : ""}
                   </span>
+                  {incomeBreakdown ? (
+                    <ul className="ahd-mp-list" aria-label="Campaign income per turn">
+                      <li>Base generation: {incomeLine(incomeBreakdown.baseGen)}</li>
+                      <li>Donor bonus: {incomeLine(incomeBreakdown.donorBonus)}</li>
+                      <li>Office bonus: {incomeLine(incomeBreakdown.officeBonus)}</li>
+                      <li>Union contribution: {incomeLine(incomeBreakdown.unionContribution)}</li>
+                      <li>State tax: {incomeLine(incomeBreakdown.stateTax)}</li>
+                      <li>National tax: {incomeLine(incomeBreakdown.nationalTax)}</li>
+                      <li>Net per turn: {incomeLine(incomeBreakdown.netPerTurn)}</li>
+                    </ul>
+                  ) : null}
+                  </>
                 ) : null}
                 {openResource === "cash" ? (
                   <span>
