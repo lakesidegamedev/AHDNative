@@ -200,6 +200,7 @@ describe("MpModeSession enter", () => {
       mailInbox: null,
       mailSent: null,
       presence: null,
+      status: null,
       notice: null,
       error: null,
       retryAfter: null,

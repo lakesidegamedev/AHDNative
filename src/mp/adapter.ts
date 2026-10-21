@@ -3,6 +3,7 @@ import {
   parseCabinetDetail,
   parseCharacterMe,
   parseClientNav,
+  parseClientStatus,
   parseCorporationDetail,
   parseElectionDetail,
   parseExecuteResult,
@@ -38,6 +39,7 @@ import {
   type MpMailSent,
   type MpPresenceView,
   type MpTurnView,
+  type MpStatusView,
   type MpUnionDetailView,
 } from "./validators";
 import type { MpMutateOpId } from "./endpoints";
@@ -94,6 +96,13 @@ export interface MpSnapshot {
    * absent) without touching phase or error state.
    */
   presence: MpPresenceView | null;
+  /**
+   * Status-bar scalars for the signed-in character (#510 footer parity).
+   * Loaded independently via loadStatus, never as part of enter/refresh:
+   * like the reference StatusBar, a failed status read keeps the last good
+   * view (or stays absent) without touching phase or error state.
+   */
+  status: MpStatusView | null;
   /** Last server-confirmed notice (action result); cleared on next load. */
   notice: string | null;
   /** Last human-readable failure; cleared when a call succeeds. */
@@ -119,6 +128,7 @@ const INITIAL_SNAPSHOT: MpSnapshot = {
   mailInbox: null,
   mailSent: null,
   presence: null,
+  status: null,
   notice: null,
   error: null,
   retryAfter: null,
@@ -135,9 +145,9 @@ export const MP_MAIL_LIMIT = 50;
 
 function emptyAuthed(): Pick<
   MpSnapshot,
-  "character" | "savings" | "turn" | "capabilities" | "electionDetail" | "corporationDetail" | "unionDetail" | "cabinetDetail" | "governorDetail" | "inbox" | "mailInbox" | "mailSent" | "presence"
+  "character" | "savings" | "turn" | "capabilities" | "electionDetail" | "corporationDetail" | "unionDetail" | "cabinetDetail" | "governorDetail" | "inbox" | "mailInbox" | "mailSent" | "presence" | "status"
 > {
-  return { character: null, savings: null, turn: null, capabilities: null, electionDetail: null, corporationDetail: null, unionDetail: null, cabinetDetail: null, governorDetail: null, inbox: null, mailInbox: null, mailSent: null, presence: null };
+  return { character: null, savings: null, turn: null, capabilities: null, electionDetail: null, corporationDetail: null, unionDetail: null, cabinetDetail: null, governorDetail: null, inbox: null, mailInbox: null, mailSent: null, presence: null, status: null };
 }
 
 export class MpModeSession {
@@ -439,6 +449,51 @@ export class MpModeSession {
       const presence = parsePlayersOnline(result.bodyText);
       if (!presence) return this.get();
       return this.set({ presence });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
+   * Read the latest authoritative turn without re-reading the whole
+   * authenticated projection (#510 latest-MP-turn slice). `/api/game/turn/
+   * status` is public, so this can run on the reference poller cadence while
+   * the screen is ready. Every failure (refusal, rate limit, malformed,
+   * offline, surprising 401) keeps the last good turn and leaves phase,
+   * error, drafts, and the other views untouched: the screen must never
+   * invent a turn or expire a session over a status poll. Never throws.
+   */
+  async loadTurnStatus(): Promise<MpSnapshot> {
+    if (!this.snapshot.userId || this.snapshot.phase !== "ready") return this.get();
+    try {
+      const result = await mpFetch(this.host, "turn-status");
+      if (result.kind !== "ok") return this.get();
+      const turn = parseTurnStatus(result.bodyText);
+      if (!turn) return this.get();
+      return this.set({ turn });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
+   * Read the authoritative status-bar scalars for the signed-in character
+   * (#510 footer parity). GET /api/client-status?layout=minimal is pinned by
+   * the Rust bridge, and it answers the action count, action cap, campaign
+   * funds, cash, political influence and favorability the footer shows.
+   * Like the reference StatusBar this read is independent of enter/refresh:
+   * every failure (refusal, rate limit, malformed, offline, surprising 401)
+   * keeps the last good view, never expires the session, and never invents a
+   * figure. Never throws.
+   */
+  async loadStatus(): Promise<MpSnapshot> {
+    if (!this.snapshot.userId || this.snapshot.phase !== "ready") return this.get();
+    try {
+      const result = await mpFetch(this.host, "client-status");
+      if (result.kind !== "ok") return this.get();
+      const status = parseClientStatus(result.bodyText);
+      if (!status) return this.get();
+      return this.set({ status });
     } catch {
       return this.get();
     }

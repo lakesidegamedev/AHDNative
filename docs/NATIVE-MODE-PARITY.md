@@ -4,7 +4,9 @@ AHDGame is the behavior and visual reference. SP and MP use one native navigatio
 and presentation system, with local-engine and authoritative-server adapters.
 This inventory describes the implemented slice, not whole-game parity.
 
-Reference sources: AHDGame `e364c04954ed628beef73a993a8e9e156650a31e`,
+Reference sources: AHDGame `e35f75e3fe230e7ab4439a4f63b7269829a64f9d`
+(latest MP contract pin; the earlier presentation inventory used
+`e364c04954ed628beef73a993a8e9e156650a31e`),
 `ExperimentalMobileMenu.tsx`, `profileNavItems.ts`, `StatusBar.tsx`,
 `ProfileHeader.tsx`, and `actionsConstants.ts`. The creation Review step also
 follows `conversationSteps.ts` at `714082cdd0df50c446395febfd48cccbe2037bb9`.
@@ -35,10 +37,15 @@ quotes. MP lists its existing audited action set without claiming eligibility it
 cannot quote. MP uses the same card styles and bundled Actions artwork. This
 presentation change does not expand the server action allowlist.
 
-MP's compact footer exposes the reported turn, schedule/status, presence, AP,
-cash and unread notifications. AP opens Actions, cash opens Wallet and the inbox
-count opens Notifications. Missing values remain absent. No currency or income
-breakdown is inferred from an unqualified cash number.
+MP's compact footer exposes the same leading identity as SP (name opens
+Profile, followed by party · country), the reported turn on the shared LARP
+calendar with the Founding freeze, schedule/status, presence, AP, campaign
+funds, cash, influence, favorability and unread notifications. AP opens
+Actions, funds/cash open Wallet, influence/favorability open Profile and the
+inbox count opens Notifications. The resource figures come from the
+authoritative status read and refresh on the reference cadence; missing
+values remain absent. No currency or income breakdown is inferred from an
+unqualified cash number.
 
 ## Destination matrix
 

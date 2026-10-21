@@ -10,6 +10,7 @@ import {
   parseCabinetDetail,
   parseCharacterMe,
   parseClientNav,
+  parseClientStatus,
   parseCorporationDetail,
   parseElectionDetail,
   parseExecuteResult,
@@ -165,6 +166,15 @@ describe("parseTurnStatus", () => {
       nextScheduledTurn: "2026-09-15T16:00:00.000Z",
       paused: false,
       pauseReason: null,
+      startingYear: 1862,
+      preIterationTurns: 0,
+      preIterationActive: false,
+      pauseKind: null,
+      preset: null,
+      iterationId: null,
+      lastTurnProcessed: null,
+      lastMarketTickAt: null,
+      fastMode: false,
     });
     expect(parseTurnStatus(JSON.stringify({ currentTurn: 1, currentYear: 1860 }))).toMatchObject({
       currentTurn: 1,
@@ -173,6 +183,86 @@ describe("parseTurnStatus", () => {
     });
     expect(parseTurnStatus(JSON.stringify({ currentTurn: 1 }))).toBeNull();
     expect(parseTurnStatus(JSON.stringify({ error: "Game state not initialized" }))).toBeNull();
+  });
+
+  it("projects the latest turn-status calendar, founding and pause fields", () => {
+    const view = parseTurnStatus(
+      JSON.stringify({
+        currentTurn: 52,
+        currentYear: 1954,
+        startingYear: 1953,
+        preIterationTurns: 4,
+        preIterationActive: false,
+        preset: "1953-default",
+        isActive: true,
+        isProcessing: false,
+        nextScheduledTurn: "2026-09-17T13:00:00.000Z",
+        pausedAt: null,
+        pauseReason: null,
+        pauseKind: null,
+        iterationId: "iteration-7",
+        lastTurnProcessed: "2026-09-17T12:00:00.000Z",
+        lastMarketTickAt: "2026-09-17T12:15:00.000Z",
+        fastMode: true,
+      }),
+    );
+    expect(view).toMatchObject({
+      currentTurn: 52,
+      currentYear: 1954,
+      startingYear: 1953,
+      preIterationTurns: 4,
+      preIterationActive: false,
+      preset: "1953-default",
+      pauseKind: null,
+      iterationId: "iteration-7",
+      lastTurnProcessed: "2026-09-17T12:00:00.000Z",
+      lastMarketTickAt: "2026-09-17T12:15:00.000Z",
+      fastMode: true,
+    });
+  });
+
+  it("fails closed per field and derives the era start when the server omits it", () => {
+    const view = parseTurnStatus(
+      JSON.stringify({
+        currentTurn: 52,
+        currentYear: 1954,
+        startingYear: "1953",
+        preIterationTurns: "four",
+        preIterationActive: "yes",
+        preset: 7,
+        pauseKind: "mystery",
+        lastMarketTickAt: 7,
+        lastTurnProcessed: [],
+        iterationId: {},
+        fastMode: "true",
+      }),
+    );
+    expect(view?.startingYear).toBe(1953);
+    expect(view?.preIterationTurns).toBe(0);
+    expect(view?.preIterationActive).toBe(false);
+    expect(view?.preset).toBeNull();
+    expect(view?.pauseKind).toBeNull();
+    expect(view?.lastMarketTickAt).toBeNull();
+    expect(view?.lastTurnProcessed).toBeNull();
+    expect(view?.iterationId).toBeNull();
+    expect(view?.fastMode).toBe(false);
+  });
+
+  it("projects the auto-drift pause kind", () => {
+    const view = parseTurnStatus(
+      JSON.stringify({
+        currentTurn: 9,
+        currentYear: 1953,
+        startingYear: 1953,
+        isActive: false,
+        pausedAt: "2026-09-17T11:00:00.000Z",
+        pauseReason: "No player activity",
+        pauseKind: "auto-drift",
+      }),
+    );
+    expect(view?.paused).toBe(true);
+    expect(view?.pauseKind).toBe("auto-drift");
+    expect(view?.pauseReason).toBe("No player activity");
   });
 
   it("projects server progress and target turn, failing closed on malformed values", () => {
@@ -241,6 +331,68 @@ describe("parseInbox", () => {
   });
 });
 
+describe("parseClientStatus", () => {
+  const full = () =>
+    JSON.stringify({
+      name: "Ada",
+      avatarUrl: null,
+      actions: 3,
+      actionCap: 5,
+      hoardThreshold: 4,
+      funds: 1200,
+      campaignFundsStored: 1200,
+      cashOnHand: 5400,
+      personalHomeLiquid: 5200,
+      homeCurrency: "USD",
+      donorBaseLevel: 2,
+      politicalInfluence: 61,
+      favorability: 55,
+      currentOfficeType: null,
+    });
+
+  it("projects the footer scalars", () => {
+    expect(parseClientStatus(full())).toEqual({
+      actions: 3,
+      actionCap: 5,
+      hoardThreshold: 4,
+      funds: 1200,
+      campaignFundsStored: 1200,
+      cashOnHand: 5400,
+      personalHomeLiquid: 5200,
+      homeCurrency: "USD",
+      donorBaseLevel: 2,
+      politicalInfluence: 61,
+      favorability: 55,
+    });
+  });
+
+  it("degrades per field and never invents a figure", () => {
+    const view = parseClientStatus(
+      JSON.stringify({
+        actions: "three",
+        actionCap: 5,
+        funds: -1,
+        cashOnHand: 12.5,
+        homeCurrency: "usd",
+        politicalInfluence: null,
+      }),
+    );
+    expect(view?.actions).toBeNull();
+    expect(view?.actionCap).toBe(5);
+    expect(view?.funds).toBeNull();
+    expect(view?.cashOnHand).toBe(12.5);
+    expect(view?.homeCurrency).toBeNull();
+    expect(view?.politicalInfluence).toBeNull();
+    expect(view?.favorability).toBeNull();
+  });
+
+  it("rejects an account without a character and a body with no scalars", () => {
+    expect(parseClientStatus(JSON.stringify({ status: "no-character" }))).toBeNull();
+    expect(parseClientStatus(JSON.stringify({ name: "Ada" }))).toBeNull();
+    expect(parseClientStatus("not json")).toBeNull();
+  });
+});
+
 describe("parseClientNav", () => {
   const full = () =>
     JSON.stringify({
@@ -271,6 +423,7 @@ describe("parseClientNav", () => {
       characterName: "Ada",
       characterCountryId: "US",
       unreadMailCount: 2,
+      funds: 1000,
       corporationId: 7,
       unionId: null,
       activeElectionLabel: "President — National",

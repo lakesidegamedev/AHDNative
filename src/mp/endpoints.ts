@@ -1,7 +1,9 @@
 /**
  * Audited multiplayer endpoint registry (#359).
  *
- * Pinned against public AHDGame at e364c04954ed628beef73a993a8e9e156650a31e.
+ * Pinned against public AHDGame at e35f75e3fe230e7ab4439a4f63b7269829a64f9d
+ * (origin/main, latest multiplayer release; the previous pin was
+ * e364c04954ed628beef73a993a8e9e156650a31e, 2,951 commits stale).
  * Every entry records the method, auth gate, rate limit, and response shapes
  * the Native adapter relies on. The server is authoritative: this file models
  * the contract, it never reimplements it.
@@ -28,17 +30,44 @@
  *   Cache: no-store. (PATCH /api/character/me exists for onboarding flags;
  *   not modeled: absent in v1.)
  * - client-nav        /api/client-nav          optional auth, guest fallback
+ * - client-status     /api/client-status?layout=minimal
+ *   requireBasicAuth; 401 signed out; 200 {status:"no-character"} when the
+ *   account has no active character. Status-bar scalars for the signed-in
+ *   character (AHDGame src/app/api/client-status/route.ts): {name, avatarUrl,
+ *   actions, actionCap, hoardThreshold, funds, campaignFundsStored,
+ *   cashOnHand, personalHomeLiquid, homeCurrency, donorBaseLevel,
+ *   politicalInfluence, favorability, currentOfficeType, ...}.
+ *   The layout is pinned to `minimal` by the Rust bridge: that layout answers
+ *   the action/funds/cash/influence/favorability figures the footer shows
+ *   and skips the corporation, election and income enrichment the wider
+ *   layouts run. Native projects only the scalars above; the income
+ *   breakdown, corporation nav, election stats and turn briefing stay
+ *   server-side, and the reference polls this read every 60s, on a new turn
+ *   and on foreground return.
  * - turn-status       /api/game/turn/status    public; 404 uninitialized
- *   {singleplayer,currentTurn,currentYear,isActive,isProcessing,
- *   nextScheduledTurn|null,processingPhaseLabel,...}
- *   Native projects the processing slice too (#359): `processingProgress`
- *   (server-clamped 0..98 int while processing, null otherwise; the adapter
- *   accepts any finite 0..100 and renders it rounded, malformed or
- *   out-of-range values render no percent) and `processingTargetTurn`
- *   (rendered only while isProcessing). Heartbeat/started-at timestamps,
- *   lock-retry fields, and per-phase statuses stay unprojected: staleness
- *   classification stays server-side and Native never ages, dismisses, or
- *   completes processing state locally.
+ *   {singleplayer,currentTurn,currentYear,startingYear,preset,
+ *   preIterationTurns,preIterationActive,isActive,isProcessing,
+ *   lastTurnProcessed,lastMarketTickAt,nextScheduledTurn|null,
+ *   iterationId,processingPhaseLabel,processingProgress,
+ *   processingTargetTurn,pausedAt,pauseReason,pauseKind,fastMode,...}
+ *   Latest-reference note (e35f75e3): `iterationId` and `lastMarketTickAt`
+ *   were added after e364c049; `startingYear`, `preset`, `pauseKind` and the
+ *   pre-iteration clock fields are now projected because the reference
+ *   calendar uses them. `startingYear`/`preIterationTurns`/`preIterationActive`
+ *   feed `formatServerTurnDate` so MP renders the same LARP date, founding
+ *   freeze and era year as SP; `pauseKind` distinguishes manual from
+ *   auto-drift pauses. Native projects the processing slice too (#359):
+ *   `processingProgress` (server-clamped 0..98 int while processing, null
+ *   otherwise; the adapter accepts any finite 0..100 and renders it rounded,
+ *   malformed or out-of-range values render no percent) and
+ *   `processingTargetTurn` (rendered only while isProcessing). Heartbeat/
+ *   started-at timestamps, lock-retry fields, and per-phase statuses stay
+ *   unprojected: staleness classification stays server-side and Native never
+ *   ages, dismisses, or completes processing state locally.
+ *   Native polls this public read on the reference cadence (1.5s processing,
+ *   15s/60s near a turn or market tick, 120s relaxed, 300s hidden) through
+ *   `loadTurnStatus`, so the displayed turn keeps referencing the latest
+ *   server turn instead of the mount snapshot.
  * - players-online    GET /api/players/online    public, no session required.
  *   Count of non-banned players active within the last hour
  *   (src/app/api/players/online/route.ts): 200 {online: number, asOf: ISO}.
@@ -280,7 +309,7 @@
  *   24-hex character id.
  */
 
-export const MP_AUDIT_REVISION = "e364c04954ed628beef73a993a8e9e156650a31e";
+export const MP_AUDIT_REVISION = "e35f75e3fe230e7ab4439a4f63b7269829a64f9d";
 export const MP_ORIGIN = "https://ahousedividedgame.com";
 
 export type MpFetchOpId =
@@ -288,6 +317,7 @@ export type MpFetchOpId =
   | "character-me"
   | "savings-accounts"
   | "client-nav"
+  | "client-status"
   | "turn-status"
   | "players-online"
   | "game-time"

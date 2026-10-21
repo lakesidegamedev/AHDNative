@@ -12,6 +12,7 @@ import {
   type MpNotificationPreferenceAction,
   type MpNotificationType,
 } from "./endpoints";
+import { serverStartingYear } from "./turnCalendar";
 
 /**
  * Runtime validation for authoritative payloads (#359). Every remote body is
@@ -174,6 +175,29 @@ export interface MpTurnView {
   nextScheduledTurn: string | null;
   paused: boolean;
   pauseReason: string | null;
+  /**
+   * Calendar year of turn 1 for the active reset preset (`startingYear`).
+   * Latest turn-status always reports it; when an older server omits it the
+   * parser derives it from the pinned `currentYear` so dates cannot shift a
+   * year. The LARP date itself is rendered by `formatServerTurnDate`.
+   */
+  startingYear: number;
+  /** Founding turns burned before the calendar started (`preIterationTurns`). */
+  preIterationTurns: number;
+  /**
+   * Founding phase active (`preIterationActive`): the reference pins the
+   * display calendar to the era start, so the footer shows the Founding
+   * badge and the era's first week.
+   */
+  preIterationActive: boolean;
+  /** Server pause classification; null on a running world or unknown value. */
+  pauseKind: "manual" | "auto-drift" | null;
+  preset: string | null;
+  iterationId: string | null;
+  lastTurnProcessed: string | null;
+  /** Last completed quarter-hour market update; display metadata only. */
+  lastMarketTickAt: string | null;
+  fastMode: boolean;
 }
 
 /** turn-status: currentTurn/currentYear required; everything else optional. */
@@ -186,6 +210,16 @@ export function parseTurnStatus(bodyText: string): MpTurnView | null {
   const isProcessing = asBoolean(record.isProcessing) ?? false;
   const pausedAt = record.pausedAt;
   const rawProgress = asNumber(record.processingProgress);
+  const preIterationActive = asBoolean(record.preIterationActive) ?? false;
+  const rawPreIterationTurns = asNumber(record.preIterationTurns);
+  const preIterationTurns =
+    rawPreIterationTurns !== null && rawPreIterationTurns >= 0
+      ? Math.floor(rawPreIterationTurns)
+      : 0;
+  const pauseKind =
+    record.pauseKind === "manual" || record.pauseKind === "auto-drift"
+      ? record.pauseKind
+      : null;
   return {
     currentTurn,
     currentYear,
@@ -201,6 +235,21 @@ export function parseTurnStatus(bodyText: string): MpTurnView | null {
         : null,
     paused: pausedAt !== null && pausedAt !== undefined,
     pauseReason: asTrimmedString(record.pauseReason ?? null),
+    startingYear: serverStartingYear({
+      currentTurn,
+      currentYear,
+      startingYear: asNumber(record.startingYear),
+      preIterationActive,
+      preIterationTurns,
+    }),
+    preIterationTurns,
+    preIterationActive,
+    pauseKind,
+    preset: asTrimmedString(record.preset ?? null),
+    iterationId: asTrimmedString(record.iterationId ?? null),
+    lastTurnProcessed: asTrimmedString(record.lastTurnProcessed ?? null),
+    lastMarketTickAt: asTrimmedString(record.lastMarketTickAt ?? null),
+    fastMode: asBoolean(record.fastMode) ?? false,
   };
 }
 
@@ -312,6 +361,8 @@ export interface MpCapabilitiesView {
   characterName: string | null;
   characterCountryId: string | null;
   unreadMailCount: number | null;
+  /** client-nav campaign funds; the SP footer's Funds chip reads the same figure. */
+  funds: number | null;
   corporationId: number | null;
   unionId: string | null;
   activeElectionLabel: string | null;
@@ -370,6 +421,7 @@ export function parseClientNav(bodyText: string): MpCapabilitiesView | null {
     characterName: asTrimmedString(record.characterName ?? null),
     characterCountryId: asTrimmedString(record.characterCountryId ?? null),
     unreadMailCount: record.unreadMailCount === undefined ? null : asNumber(record.unreadMailCount),
+    funds: record.funds === undefined ? null : asNumber(record.funds),
     corporationId: asCorporationCapabilityId(record.myCorporationId),
     unionId: asTrimmedString(record.myUnionId ?? null),
     activeElectionLabel: election ? asTrimmedString(election.label ?? null) : null,
@@ -381,6 +433,89 @@ export function parseClientNav(bodyText: string): MpCapabilitiesView | null {
     governorOffice: governor ? asTrimmedString(governor.stateName ?? null) : null,
     governorStateId: governorCountryCode !== null && governorStateId !== null ? governorStateId : null,
     governorCountryCode: governorCountryCode !== null && governorStateId !== null ? governorCountryCode : null,
+  };
+}
+
+/**
+ * Status-bar scalars for the signed-in character, projected from
+ * GET /api/client-status?layout=minimal (AHDGame
+ * src/app/api/client-status/route.ts). The reference status bar reads the
+ * same payload; Native keeps only the footer figures and leaves the income
+ * breakdown, corporation nav, election stats and turn briefing server-side.
+ */
+export interface MpStatusView {
+  /** Actions the character can still spend this turn. */
+  actions: number | null;
+  /** Per-turn action cap (Energy-scaled). */
+  actionCap: number | null;
+  /** Action count above which the hoarding penalty applies. */
+  hoardThreshold: number | null;
+  /** Campaign funds in internal/anchor units. */
+  funds: number | null;
+  /** Stored campaign-fund balance in the home currency. */
+  campaignFundsStored: number | null;
+  /** Total liquid personal cash. */
+  cashOnHand: number | null;
+  /** Liquid home-currency cash only (spendable without conversion). */
+  personalHomeLiquid: number | null;
+  homeCurrency: string | null;
+  donorBaseLevel: number | null;
+  politicalInfluence: number | null;
+  favorability: number | null;
+}
+
+function statusNumber(value: unknown): number | null {
+  const parsed = asNumber(value);
+  if (parsed === null || parsed < 0) return null;
+  return parsed;
+}
+
+/**
+ * client-status: an account without an active character answers
+ * `{status:"no-character"}`, which is not a player status. A body with none
+ * of the expected scalars is malformed and fails closed. Individual mistyped
+ * fields degrade to null instead of failing the whole projection.
+ */
+export function parseClientStatus(bodyText: string): MpStatusView | null {
+  const record = asRecord(parseJsonBody(bodyText));
+  if (!record) return null;
+  if (asTrimmedString(record.status ?? null) === "no-character") return null;
+  const actions = statusNumber(record.actions);
+  const actionCap = statusNumber(record.actionCap);
+  const hoardThreshold = statusNumber(record.hoardThreshold);
+  const funds = statusNumber(record.funds);
+  const campaignFundsStored = statusNumber(record.campaignFundsStored);
+  const cashOnHand = statusNumber(record.cashOnHand);
+  const personalHomeLiquid = statusNumber(record.personalHomeLiquid);
+  const donorBaseLevel = statusNumber(record.donorBaseLevel);
+  const politicalInfluence = statusNumber(record.politicalInfluence);
+  const favorability = statusNumber(record.favorability);
+  const homeCurrency = asTrimmedString(record.homeCurrency ?? null);
+  const scalars = [
+    actions,
+    actionCap,
+    hoardThreshold,
+    funds,
+    campaignFundsStored,
+    cashOnHand,
+    personalHomeLiquid,
+    donorBaseLevel,
+    politicalInfluence,
+    favorability,
+  ];
+  if (scalars.every((value) => value === null)) return null;
+  return {
+    actions,
+    actionCap,
+    hoardThreshold,
+    funds,
+    campaignFundsStored,
+    cashOnHand,
+    personalHomeLiquid,
+    homeCurrency: homeCurrency && /^[A-Z]{3}$/.test(homeCurrency) ? homeCurrency : null,
+    donorBaseLevel,
+    politicalInfluence,
+    favorability,
   };
 }
 

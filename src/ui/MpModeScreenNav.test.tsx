@@ -106,7 +106,7 @@ describe.each([320, 390])("MP footer navigation at %spx", (width) => {
     const user = userEvent.setup();
     await renderReady(width);
     const footer = within(screen.getByRole("contentinfo", { name: "Multiplayer navigation" }));
-    expect(footer.getByText("Turn 12")).toBeVisible();
+    expect(footer.getByLabelText("World status").textContent).toContain("Turn 12 · March, Week 4, 1862");
     await user.click(footer.getByRole("button", { name: "Cash on hand: 1,000" }));
     expect(screen.getByRole("region", { name: "Wallet" })).toBeVisible();
     await user.click(footer.getByRole("button", { name: "Action points: 3" }));

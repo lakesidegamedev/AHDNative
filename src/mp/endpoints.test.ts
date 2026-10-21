@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  MP_AUDIT_REVISION,
   MP_BATCHABLE_ACTION_TYPES,
   MP_EXECUTE_ACTIONS,
   MP_EXECUTE_COUNTS,
@@ -15,6 +16,21 @@ import {
   isMpNotificationType,
   type MpFetchOpId,
 } from "./endpoints";
+
+/**
+ * Pins the MP contract registry to the latest audited AHDGame multiplayer
+ * revision. The previous pin (e364c049, 2026-09) was 2,951 commits behind
+ * origin/main, so turn-status and several audited routes had drifted.
+ */
+describe("MP reference pin", () => {
+  it("cites the latest audited AHDGame revision in both constant and header", () => {
+    expect(MP_AUDIT_REVISION).toBe("e35f75e3fe230e7ab4439a4f63b7269829a64f9d");
+    const source = readFileSync(new URL("./endpoints.ts", import.meta.url), "utf8");
+    expect(source.slice(0, source.indexOf("export const MP_AUDIT_REVISION"))).toContain(
+      MP_AUDIT_REVISION,
+    );
+  });
+});
 
 /**
  * Pins the nine action names/descriptions to the audited AHDGame catalog

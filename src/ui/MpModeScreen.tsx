@@ -5,6 +5,8 @@ import { tauriMpBridgeHost, type MpBridgeHost } from "../mp/bridge";
 import { isCabinetCountryCode, isCabinetPositionId, isCorporationId, isElectionId, isGovernorCountryCode, isGovernorStateId, isUnionId } from "../mp/validators";
 import { MP_EXECUTE_ACTIONS, MP_NOTIFICATION_TYPES, MP_SNOOZE_MINUTES_DEFAULT } from "../mp/endpoints";
 import { formatTurnCountdown } from "../mp/validators";
+import { turnPollDelay } from "../mp/turnPoll";
+import { formatServerTurnDate } from "../mp/turnCalendar";
 import { MpAdminScreen } from "./MpAdminScreen";
 import { ActionCategories } from "./ActionCategories";
 import { ACTION_HUB_CATEGORIES, type ActionsCategoryFilter } from "./ActionsHub";
@@ -50,6 +52,11 @@ export interface MpModeScreenProps {
  * no-ops entirely without a signed-in session. */
 const PRESENCE_POLL_MS = 300_000;
 
+/* Status-bar refresh cadence (#510 footer parity): the reference StatusBar
+ * polls /api/client-status every 60s while visible, plus on a new turn and
+ * on foreground return. */
+const MP_STATUS_POLL_MS = 60_000;
+
 const IDLE: MpSnapshot = {
   phase: "idle",
   userId: null,
@@ -67,6 +74,7 @@ const IDLE: MpSnapshot = {
   mailInbox: null,
   mailSent: null,
   presence: null,
+  status: null,
   notice: null,
   error: null,
   retryAfter: null,
@@ -102,6 +110,10 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
   const footerRef = useRef<HTMLElement | null>(null);
   const [snapshot, setSnapshot] = useState<MpSnapshot>(IDLE);
   const [busy, setBusy] = useState(false);
+  /* Read by the turn poller: a turn that lands mid-action must not race a
+   * full projection refresh against the action's own refresh. */
+  const busyRef = useRef(false);
+  busyRef.current = busy;
   const [region, setRegion] = useState("");
   const [amount, setAmount] = useState("");
   const [runs, setRuns] = useState<1 | 5 | 10>(1);
@@ -148,6 +160,12 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
       // Presence rides the same mount freshness without joining the
       // enter/refresh contract: a failed presence load stays absent.
       if (next.phase === "ready" && next.userId) return session.loadPresence();
+      return next;
+    }).then((next) => {
+      // Status-bar scalars (#510 footer parity) ride the same chain: a
+      // failed status read keeps the previous figures and never fails the
+      // session, exactly like the reference status bar.
+      if (next.phase === "ready" && next.userId) return session.loadStatus();
       return next;
     }).then((next) => {
       if (live) setSnapshot(next);
@@ -238,10 +256,138 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
     };
   }, []);
 
+  /* Latest-turn freshness (#510 latest-MP-turn slice). The mount chain reads
+   * turn status once, but an MP world advances on the server schedule, so a
+   * long-open screen would otherwise show a stale turn. This mirrors the
+   * reference status poller cadence (AHDGame useGameEvents.ts): 1.5s while
+   * the worker processes, 15s/60s near the next turn or market tick, 120s
+   * relaxed, 300s hidden, plus a foreground re-poll. loadTurnStatus keeps
+   * the last good turn on every failure, so this can never disturb phase,
+   * errors, drafts, or the other views. When the server reports a newer
+   * turn, the reference refetches character stats and nav; Native does the
+   * same through one full refresh so AP, inbox, and capabilities match the
+   * new turn. */
+  useEffect(() => {
+    const session = sessionRef.current!;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let polling = false;
+    let lastPollAt = 0;
+
+    const visibility = (): "visible" | "hidden" =>
+      typeof document !== "undefined" && document.visibilityState === "hidden" ? "hidden" : "visible";
+
+    const clearTimer = () => {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    };
+
+    const schedule = (delay?: number) => {
+      if (!live) return;
+      clearTimer();
+      timer = setTimeout(
+        () => {
+          void poll();
+        },
+        delay ?? turnPollDelay(session.get().turn, new Date(), visibility()),
+      );
+    };
+
+    const poll = async () => {
+      if (!live || polling) return;
+      if (visibility() === "hidden") {
+        schedule();
+        return;
+      }
+      const before = session.get();
+      if (!before.userId || before.phase !== "ready") {
+        schedule();
+        return;
+      }
+      polling = true;
+      try {
+        const next = await session.loadTurnStatus();
+        if (!live) return;
+        lastPollAt = Date.now();
+        if (next.phase === "ready" && next.userId) setSnapshot(next);
+        const turnAdvanced =
+          !!before.turn && !!next.turn && next.turn.currentTurn !== before.turn.currentTurn;
+        if (turnAdvanced && !busyRef.current) {
+          const refreshed = await withPresenceRefresh(session, session.refresh());
+          if (!live) return;
+          // The reference refetches its status payload on a new turn too:
+          // the server grants action points and campaign income there.
+          const withStatus = refreshed.phase === "ready" ? await session.loadStatus() : refreshed;
+          if (!live) return;
+          setSnapshot(withStatus);
+          schedule();
+          return;
+        }
+        schedule();
+      } finally {
+        polling = false;
+      }
+    };
+
+    const onVisibility = () => {
+      if (!live) return;
+      if (visibility() === "visible") {
+        if (Date.now() - lastPollAt > 5_000) {
+          clearTimer();
+          void poll();
+        } else {
+          schedule();
+        }
+        return;
+      }
+      schedule();
+    };
+
+    document.addEventListener("visibilitychange", onVisibility);
+    schedule();
+    return () => {
+      live = false;
+      clearTimer();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+    // Re-arm when the session phase settles: the mount chain's first
+    // turn-status read decides whether the screen is processing (1.5s) or
+    // relaxed (120s). Timers are cleared on every phase change, so this
+    // cannot stack pollers.
+  }, [snapshot.phase]);
+
   function runGeneral(operation: (session: MpModeSession) => Promise<MpSnapshot>) {
     setNoticeScope("general");
     void run(operation);
   }
+
+  /* Status-bar freshness (#510 footer parity). The reference StatusBar
+   * refetches /api/client-status every 60s while visible, on a new turn and
+   * on foreground return. Native mirrors that cadence: the read is public to
+   * the session, cheap in its pinned minimal layout, and every failure keeps
+   * the last good figures without touching phase, errors, or drafts. */
+  useEffect(() => {
+    const session = sessionRef.current!;
+    let live = true;
+    const pollStatus = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      void session.loadStatus().then((next) => {
+        if (live) setSnapshot(next);
+      });
+    };
+    const onVisibleStatus = () => {
+      if (document.visibilityState === "visible") pollStatus();
+    };
+    const intervalId = setInterval(pollStatus, MP_STATUS_POLL_MS);
+    document.addEventListener("visibilitychange", onVisibleStatus);
+    return () => {
+      live = false;
+      clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisibleStatus);
+    };
+  }, []);
 
   /* Standing active-election drill-in target: the live-site
    * /elections/[seatId ?? id] reference, gated on a valid election id. An
@@ -524,6 +670,33 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
     && !snapshot.turn.isProcessing
     && !snapshot.turn.paused
     && snapshot.turn.isActive !== false;
+  /* One calendar for SP and MP (#510 latest-MP-turn slice): the shared
+   * formatter applies the same founding freeze and preset starting year as
+   * the singleplayer footer, so both modes read "Month, Week N, Year". */
+  const turnDate = snapshot.turn
+    ? formatServerTurnDate({
+        currentTurn: snapshot.turn.currentTurn,
+        startingYear: snapshot.turn.startingYear,
+        preIterationActive: snapshot.turn.preIterationActive,
+        preIterationTurns: snapshot.turn.preIterationTurns,
+      })
+    : null;
+  const turnFounding = snapshot.turn?.preIterationActive === true;
+  /* Footer resource parity: the SP footer reads campaign funds from the same
+   * authoritative source (client-nav `funds`); MP can therefore show the same
+   * chip instead of dropping the figure. */
+  const campaignFunds = snapshot.capabilities?.funds ?? null;
+  /* Resource figures (#510 footer parity). The authoritative status read
+   * wins over the character/nav projections because the server grants
+   * action points and campaign income on its own turn; the older reads stay
+   * as fallbacks so a status failure never blanks a chip. */
+  const statusActions = snapshot.status?.actions ?? snapshot.character?.actions ?? null;
+  const statusFunds = snapshot.status?.funds ?? campaignFunds;
+  const statusCash = snapshot.status?.cashOnHand ?? snapshot.character?.cashOnHand ?? null;
+  const statusInfluence = snapshot.status?.politicalInfluence ?? null;
+  const statusFavorability = snapshot.status?.favorability ?? null;
+  const statusCurrency = snapshot.status?.homeCurrency ?? null;
+  const moneyLabel = (value: number) => (statusCurrency ? `${value.toLocaleString("en-US")} ${statusCurrency}` : value.toLocaleString("en-US"));
 
   const visibleElection = !needsSession && electionOpen ? snapshot.electionDetail : null;
   const visibleCorporation = !needsSession && corporationOpen ? snapshot.corporationDetail : null;
@@ -768,7 +941,14 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
             )}
             {snapshot.turn && (
               <article className="ahd-card ahd-card-pad" aria-label="World turn">
-                <h2 className="ahd-h2">Turn {snapshot.turn.currentTurn} · {snapshot.turn.currentYear}</h2>
+                <h2 className="ahd-h2">
+                  Turn {snapshot.turn.currentTurn} ·{" "}
+                  {turnFounding ? (
+                    <span className="ahd-founding-badge" title="In-game date is frozen at the era start until the founding elections finish">Founding</span>
+                  ) : null}
+                  {turnFounding ? " " : null}
+                  {turnDate}
+                </h2>
                 <dl className="ahd-mp-facts">
                   <dt>Status</dt>
                   <dd>
@@ -1427,17 +1607,53 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
       <footer ref={footerRef} className="ahd-footer ahd-mp-footer" aria-label="Multiplayer navigation">
         <div className="ahd-container ahd-footer-inner">
           {snapshot.turn && <div className="ahd-statusline" aria-label="World status">
-            <span className="ahd-mono">Turn {snapshot.turn.currentTurn}</span>
-            <span>{snapshot.turn.currentYear}</span>
+            {/* Reference status bar leads with the character identity
+                (AHDGame StatusBar.tsx:345-350): the name links to Profile,
+                followed by party · country. SP already renders this block;
+                MP had the same data but dropped it, leaving the two footers
+                different at the same width. */}
+            {snapshot.character && (
+              <span className="ahd-status-identity">
+                <button
+                  type="button"
+                  className="ahd-status-identity-name"
+                  aria-label={`Profile: ${snapshot.character.name}`}
+                  title="View profile"
+                  onClick={() => jumpTo("mp-profile")}
+                >
+                  {snapshot.character.name}
+                </button>
+                <span className="ahd-muted ahd-status-identity-context">
+                  {snapshot.character.party || "Independent"} · {snapshot.character.countryId ?? "Unknown"}
+                </span>
+              </span>
+            )}
+            <span className="ahd-mono">
+              Turn {snapshot.turn.currentTurn} ·{" "}
+              {turnFounding ? (
+                <span className="ahd-founding-badge" title="In-game date is frozen at the era start until the founding elections finish">Founding</span>
+              ) : null}
+              {turnFounding ? " " : null}
+              {turnDate}
+            </span>
             <span className="ahd-muted ahd-statusline-text">{snapshot.turn.isProcessing ? "Processing" : snapshot.turn.paused || snapshot.turn.isActive === false ? "Paused" : turnCountdown ?? "Player paced"}</span>
             {snapshot.presence && <span className="ahd-muted">{snapshot.presence.online} online</span>}
           </div>}
           {snapshot.character && <div className="ahd-status-resources ahd-mp-resources" role="group" aria-label="Resources">
-            {snapshot.character.actions !== null && <button type="button" className="ahd-status-btn" aria-label={`Action points: ${snapshot.character.actions}`} onClick={() => jumpTo("mp-actions")}>
-              <span className="ahd-status-btn-label">AP</span><span className="ahd-mono ahd-status-btn-value">{snapshot.character.actions}</span>
+            {statusActions !== null && <button type="button" className="ahd-status-btn" aria-label={`Action points: ${statusActions}`} title={snapshot.status?.actionCap !== null && snapshot.status?.actionCap !== undefined ? `Action cap: ${snapshot.status.actionCap}` : undefined} onClick={() => jumpTo("mp-actions")}>
+              <span className="ahd-status-btn-label">AP</span><span className="ahd-mono ahd-status-btn-value">{statusActions}</span>
             </button>}
-            {snapshot.character.cashOnHand !== null && <button type="button" className="ahd-status-btn" aria-label={`Cash on hand: ${snapshot.character.cashOnHand.toLocaleString("en-US")}`} onClick={() => jumpTo("mp-wallet")}>
-              <span className="ahd-status-btn-label">Cash</span><span className="ahd-mono ahd-status-btn-value">{snapshot.character.cashOnHand.toLocaleString("en-US", { notation: "compact" })}</span>
+            {statusFunds !== null && <button type="button" className="ahd-status-btn" aria-label={`Campaign funds: ${moneyLabel(statusFunds)}`} onClick={() => jumpTo("mp-wallet")}>
+              <span className="ahd-status-btn-label">Funds</span><span className="ahd-mono ahd-status-btn-value">{statusFunds.toLocaleString("en-US", { notation: "compact" })}</span>
+            </button>}
+            {statusCash !== null && <button type="button" className="ahd-status-btn" aria-label={`Cash on hand: ${moneyLabel(statusCash)}`} onClick={() => jumpTo("mp-wallet")}>
+              <span className="ahd-status-btn-label">Cash</span><span className="ahd-mono ahd-status-btn-value">{statusCash.toLocaleString("en-US", { notation: "compact" })}</span>
+            </button>}
+            {statusInfluence !== null && <button type="button" className="ahd-status-btn" aria-label={`Influence: ${statusInfluence}`} onClick={() => jumpTo("mp-profile")}>
+              <span className="ahd-status-btn-label">INF</span><span className="ahd-mono ahd-status-btn-value">{statusInfluence}</span>
+            </button>}
+            {statusFavorability !== null && <button type="button" className="ahd-status-btn" aria-label={`Favorability: ${statusFavorability}`} onClick={() => jumpTo("mp-profile")}>
+              <span className="ahd-status-btn-label">FAV</span><span className="ahd-mono ahd-status-btn-value">{statusFavorability}</span>
             </button>}
             {snapshot.inbox && <button type="button" className="ahd-status-btn" aria-label={`Notifications: ${snapshot.inbox.unreadCount} unread`} onClick={() => jumpTo("mp-inbox")}>
               <span className="ahd-status-btn-label">Inbox</span><span className="ahd-mono ahd-status-btn-value">{snapshot.inbox.unreadCount}</span>

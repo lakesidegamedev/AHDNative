@@ -105,6 +105,13 @@ pub enum MpFetchOp {
     SavingsAccounts,
     /// Navbar essentials; guest data when signed out.
     ClientNav,
+    /// Status-bar scalars for the signed-in character; GET
+    /// /api/client-status?layout=minimal (requireBasicAuth, 401 signed
+    /// out). The minimal layout is pinned on purpose: it answers the
+    /// action count, action cap, campaign funds, cash, political
+    /// influence and favorability the footer shows, and skips the
+    /// corporation/election/income enrichment the wider layouts run.
+    ClientStatus,
     /// Turn/year/processing/countdown; public but fresher via the session.
     TurnStatus,
     /// Players active within the last hour; public, no session required.
@@ -166,6 +173,7 @@ impl MpFetchOp {
             "character-me" => Some(Self::CharacterMe),
             "savings-accounts" => Some(Self::SavingsAccounts),
             "client-nav" => Some(Self::ClientNav),
+            "client-status" => Some(Self::ClientStatus),
             "turn-status" => Some(Self::TurnStatus),
             "players-online" => Some(Self::PlayersOnline),
             "game-time" => Some(Self::GameTime),
@@ -188,6 +196,7 @@ impl MpFetchOp {
             Self::CharacterMe => "/api/character/me",
             Self::SavingsAccounts => "/api/character/savings",
             Self::ClientNav => "/api/client-nav",
+            Self::ClientStatus => "/api/client-status",
             Self::TurnStatus => "/api/game/turn/status",
             Self::PlayersOnline => "/api/players/online",
             Self::GameTime => "/api/game-time",
@@ -556,6 +565,15 @@ fn fetch_path_and_query(
     offset: Option<u32>,
 ) -> Result<String, String> {
     match op {
+        MpFetchOp::ClientStatus => {
+            if limit.is_some() || offset.is_some() {
+                return Err(error::UNSUPPORTED_OP.to_string());
+            }
+            // The layout is pinned, never caller-supplied: the minimal
+            // layout answers the footer scalars without the wide
+            // enrichment queries.
+            Ok(format!("{}?layout=minimal", op.path()))
+        }
         MpFetchOp::Notifications | MpFetchOp::MailInbox | MpFetchOp::MailSent => {
             let limit = limit.ok_or_else(|| error::BAD_ARG.to_string())?;
             if !(1..=50).contains(&limit) {
@@ -1094,6 +1112,8 @@ fn is_allowlisted_call(method: &str, path_and_query: &str) -> bool {
         | ("GET", "/api/players/online")
         | ("GET", "/api/admin/maintenance")
         | ("GET", "/api/game-time") => query.is_none(),
+        // The status read only ever runs with the pinned minimal layout.
+        ("GET", "/api/client-status") => matches!(query, Some("layout=minimal")),
         ("GET", "/api/notifications") | ("GET", "/api/mail") | ("GET", "/api/mail/sent") => {
             match query {
                 Some(query) => is_paged_query(query),
@@ -1839,6 +1859,28 @@ mod tests {
         assert_eq!(MpFetchOp::from_id("../admin"), None);
         assert_eq!(MpFetchOp::from_id("CHARACTER-ME"), None);
         assert_eq!(MpFetchOp::from_id(""), None);
+    }
+
+    #[test]
+    fn client_status_read_pins_the_minimal_layout() {
+        assert_eq!(
+            MpFetchOp::from_id("client-status"),
+            Some(MpFetchOp::ClientStatus)
+        );
+        assert_eq!(MpFetchOp::ClientStatus.path(), "/api/client-status");
+        assert_eq!(
+            fetch_path_and_query(MpFetchOp::ClientStatus, None, None).unwrap(),
+            "/api/client-status?layout=minimal"
+        );
+        // Pagination arguments never apply to this read.
+        assert!(fetch_path_and_query(MpFetchOp::ClientStatus, Some(10), None).is_err());
+        assert!(fetch_path_and_query(MpFetchOp::ClientStatus, None, Some(10)).is_err());
+        // The transport allowlist accepts exactly the pinned query.
+        assert!(is_allowlisted_call("GET", "/api/client-status?layout=minimal"));
+        assert!(!is_allowlisted_call("GET", "/api/client-status"));
+        assert!(!is_allowlisted_call("GET", "/api/client-status?layout=full"));
+        assert!(!is_allowlisted_call("GET", "/api/client-status?layout=minimal&x=1"));
+        assert!(!is_allowlisted_call("POST", "/api/client-status?layout=minimal"));
     }
 
     #[test]

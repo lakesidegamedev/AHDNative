@@ -95,16 +95,16 @@ Mobile drawer note: mobile groups the same items (Nation loose links + Governmen
 
 | Chip / element | Click / panel behavior | SP vs MP | AHDNative |
 |---|---|---|---|
-| Character name | link to `/profile` | same | PARTIAL: name shown in header/player summary; no profile page link target. |
-| Turn N + in-game (LARP) date + Founding badge | title tooltips; date frozen at era start while pre-iteration active | same | PRESENT (functional): `era · Turn N · date` in header. No founding-badge state observed locally. |
-| Turn countdown: live countdown / Processing spinner / Paused / Player-paced | wall-clock cron countdown, `formatRealTimeCountdown` | MP: live countdown + online polling; SP/AHDGame-singleplayer: `Player paced`, in-navbar end-turn | PARTIAL: local End turn is real; no countdown/processing/paused states (not applicable offline). |
+| Character name | link to `/profile` | same | PRESENT (functional): SP and MP footers render the character name as a Profile button, followed by party · country. |
+| Turn N + in-game (LARP) date + Founding badge | title tooltips; date frozen at era start while pre-iteration active | same | PRESENT (functional): SP header/footer render `Turn N · [Founding] Month, Week N, Year`; the MP footer and World turn card now render the same calendar through the shared `formatServerTurnDate`, including the founding freeze and preset era year. Details: [latest MP turn parity](MP-TURN-PARITY.md). |
+| Turn countdown: live countdown / Processing spinner / Paused / Player-paced | wall-clock cron countdown, `formatRealTimeCountdown` | MP: live countdown + online polling; SP/AHDGame-singleplayer: `Player paced`, in-navbar end-turn | PRESENT: MP projects live countdown / processing / paused / player-paced from turn-status and re-polls at the reference cadence, including foreground return and turn-change refetch. SP keeps the real local End turn; server countdown/processing states do not apply offline. |
 | Online count (`N Players Online`, polled 5 min, center or inline by layout) | none (presence display) | MP only | CORRECTLY ABSENT offline. Do not build. |
 | Actions chip | tooltip: base + office + central-bank-chair + party bonuses, hoard penalty over threshold, net gain/turn, cap; link `/actions` | same rules; SP grants locally per turn | PARTIAL: live action count + per-action cost/availability inline. No breakdown tooltip (base/bonus/hoard/cap). |
-| Campaign Funds chip | income breakdown (base gen by pop tier, donor bonus, office salary, union contribution, party taxes, net/hr); link `/profile` | same | PARTIAL: `funds` value shown; no income breakdown. |
-| Personal Cash chip | delta since last action, CEO salary/hr, dividends/turn, bond coupons/turn; link `/portfolio` | same | PARTIAL: `cash` value shown; no delta/salary/dividend/coupon breakdown. |
+| Campaign Funds chip | income breakdown (base gen by pop tier, donor bonus, office salary, union contribution, party taxes, net/hr); link `/profile` | same | PARTIAL: SP and MP footers both show `funds` (MP from `client-nav`); no income breakdown in either mode yet. |
+| Personal Cash chip | delta since last action, CEO salary/hr, dividends/turn, bond coupons/turn; link `/portfolio` | same | PARTIAL: SP and MP footers both show `cash` (MP from the authoritative status read, with the home currency); no delta/salary/dividend/coupon breakdown in either mode yet. |
 | Corp Cash chip (standard layout, corp owners) | corp liquid capital + history sparkline; links into corp pages | Corp owners; local SP support requires separate mapping | MISSING in the display adapter; the local engine does contain corporations. |
-| Political Influence chip | explainer tooltip; link `/profile` | same | PARTIAL: influence value shown; no explainer panel. |
-| Favorability chip (color tier <40 / 40-60 / 60+) | explainer tooltip; link `/profile` | same | PARTIAL: favorability value shown; no tier coloring/explainer. |
+| Political Influence chip | explainer tooltip; link `/profile` | same | PARTIAL: SP and MP footers both show influence (MP from the authoritative status read, linking to Profile); no explainer panel in either mode yet. |
+| Favorability chip (color tier <40 / 40-60 / 60+) | explainer tooltip; link `/profile` | same | PARTIAL: SP and MP footers both show favorability (MP from the authoritative status read, linking to Profile); no tier coloring/explainer in either mode yet. |
 | Vote-share chip (in-race only, margin vs leader) | share + margin breakdown, vote-% sparkline; link race page | same | MISSING: no vote-share/margin stats locally (only candidate/winner names). |
 | Seat-projection chip (multi-seat only) | projection + history; link race page | same | MISSING. |
 | Corp strip (full/corp layout: share price + marketing + cash sparklines, CEO salary, dividends) | sparklines + breakdowns; corp links | Corp owners; local SP support requires separate mapping | MISSING in the display adapter; the local engine does contain corporations. |
@@ -711,3 +711,66 @@ Focused evidence: `src/ui/MarketsDeepLink510.test.tsx` (5 rendered
 tests: same-route corp entry at 320/390/1280px desktop, plain drawer
 revisit keeps the browse selection, stale corp id falls back to the list).
 No physical-iPhone evidence is claimed.
+
+## 20. Latest MP turn contract, calendar and freshness (#510)
+
+The MP audit pin was `e364c049...` while AHDGame `origin/main` had advanced
+2,951 commits to `e35f75e3...`. The audited turn-status read still resolves,
+but two payload fields (`iterationId`, `lastMarketTickAt`) had been added and
+Native was ignoring the calendar/founding fields it already received. MP
+therefore rendered `Turn N · currentYear` while SP rendered
+`Turn N · [Founding] Month, Week N, Year`, and a long-open MP screen kept the
+mount-time turn because only the 5-minute presence loop ran.
+
+Delivered:
+
+- `MpTurnView` projects the latest calendar, founding, pause, iteration and
+  market fields; malformed values degrade per field.
+- `formatServerTurnDate` is the single SP/MP conversion, pinned to AHDGame
+  `calendarTurn` + `rawTurnToLarpDate`.
+- The MP footer regained the SP leading identity (name → Profile, party ·
+  country) and the campaign funds chip from `client-nav`.
+- `loadTurnStatus` polls turn-status on the reference cadence (1.5s
+  processing, 15s/60s near an update, 120s relaxed, 300s hidden, foreground
+  re-poll) and a newer turn triggers one projection refresh.
+- `MP_AUDIT_REVISION` now cites `e35f75e3...` and a test locks constant and
+  header together.
+
+Focused evidence: `src/ui/MpModeScreenTurnFreshness.test.tsx` (6 rendered
+tests at desktop width: SP-identical date, founding badge, identity/funds,
+120s adoption of turn 13 with AP/presence refresh, 1.5s processing poll,
+background skip, foreground poll), plus `src/calendar/larpCalendarParity.test.ts`,
+`src/mp/turnCalendar.test.ts`,
+`src/mp/turnPoll.test.ts`, `src/mp/turnFreshness.test.ts`,
+`src/mp/validators.test.ts`, `src/mp/endpoints.test.ts`. No physical-iPhone
+evidence is claimed; #363/#436 remain open.
+
+## 21. MP footer resource parity (#510)
+
+The SP footer shows the character identity plus AP, campaign funds, cash,
+political influence and favorability. The MP footer showed the turn, the
+schedule and AP/cash/inbox: no identity, no funds chip, and no influence or
+favorability at all, even though `client-nav` already carried the funds
+figure and the server publishes the rest through the status read.
+
+Delivered:
+
+- The MP footer leads with the same identity block as SP (name opens
+  Profile, then party · country).
+- A new audited read, `GET /api/client-status?layout=minimal`, supplies the
+  resource figures. The Rust bridge pins the layout and the transport
+  allowlist accepts exactly `layout=minimal` for that path, so the read
+  stays cheap and no caller can smuggle a wider layout.
+- `loadStatus` runs outside enter/refresh: a failure keeps the last good
+  figures, never expires the session and never invents a value. The screen
+  refreshes on the reference cadence (60s while visible), on a new turn and
+  on foreground return.
+- The footer now shows AP, Funds, Cash, Influence and Favorability, with
+  the reported home currency on the money chips and the server action cap
+  as the AP chip's title.
+
+Focused evidence: `src/mp/status.test.ts`, `src/ui/MpStatusFooter510.test.tsx`
+(4 rendered tests: the full resource set, the 60s refresh, failure keeps
+the last good figures, background skip) and the Rust test
+`mp_session::tests::client_status_read_pins_the_minimal_layout`. No
+physical-iPhone evidence is claimed; #363/#436 remain open.
