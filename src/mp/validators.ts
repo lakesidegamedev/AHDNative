@@ -789,6 +789,46 @@ export function parseCountryPoliticians(bodyText: string): MpNationPoliticianVie
 }
 
 /**
+ * One character-search match, from GET /api/characters/search.
+ */
+export interface MpCharacterSearchResult {
+  /** 24-hex character id, the recipient the mail route takes. */
+  id: string;
+  name: string;
+  username: string | null;
+  discordUsername: string | null;
+  party: string | null;
+  homeState: string | null;
+  currentOffice: string | null;
+}
+
+/**
+ * character-search: the name matches. A malformed entry invalidates the
+ * result set rather than half-inventing a recipient list.
+ */
+export function parseCharacterSearch(bodyText: string): MpCharacterSearchResult[] | null {
+  const record = asRecord(parseJsonBody(bodyText));
+  if (!record || !Array.isArray(record.results)) return null;
+  const results: MpCharacterSearchResult[] = [];
+  for (const entry of record.results) {
+    const item = asRecord(entry);
+    const id = item ? asTrimmedString(item.id) : null;
+    const name = item ? asTrimmedString(item.name) : null;
+    if (!item || !id || !name || !HEX_OBJECT_ID.test(id)) return null;
+    results.push({
+      id,
+      name,
+      username: asTrimmedString(item.username ?? null),
+      discordUsername: asTrimmedString(item.discordUsername ?? null),
+      party: asTrimmedString(item.party ?? null),
+      homeState: asTrimmedString(item.homeState ?? null),
+      currentOffice: asTrimmedString(item.currentOffice ?? null),
+    });
+  }
+  return results;
+}
+
+/**
  * One post of the world news feed, from GET /api/news.
  */
 export interface MpNewsPostView {

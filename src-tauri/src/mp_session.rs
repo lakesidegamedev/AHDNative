@@ -191,6 +191,10 @@ pub enum MpFetchOp {
     /// The world news feed; GET /api/news?limit={limit}&offset={offset}
     /// (public, no auth). The pagination mirrors the other paged reads.
     NewsFeed,
+    /// Character search by name; GET /api/characters/search?q={query}&
+    /// limit=10 (public, no auth). The query is a plain name fragment,
+    /// validated and percent-encoded by the bridge.
+    CharacterSearch,
 }
 
 impl MpFetchOp {
@@ -220,6 +224,7 @@ impl MpFetchOp {
             "country-politicians" => Some(Self::CountryPoliticians),
             "election-list" => Some(Self::ElectionList),
             "news-feed" => Some(Self::NewsFeed),
+            "character-search" => Some(Self::CharacterSearch),
             _ => None,
         }
     }
@@ -250,6 +255,7 @@ impl MpFetchOp {
             Self::CountryPoliticians => "/api/country",
             Self::ElectionList => "/api/elections",
             Self::NewsFeed => "/api/news",
+            Self::CharacterSearch => "/api/characters/search",
         }
     }
 }
@@ -1176,6 +1182,60 @@ fn is_election_query(query: &str) -> bool {
     id_ok && view_ok
 }
 
+/// Character search fragment: two to thirty-two ASCII letters, digits,
+/// spaces, hyphens or underscores. The reference route ignores anything
+/// shorter than two characters, and the bridge never forwards raw query
+/// text.
+fn is_character_search_query(value: &str) -> bool {
+    let length = value.chars().count();
+    (2..=32).contains(&length)
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '-' || c == '_')
+}
+
+/// Build the exact character search request path from a validated name
+/// fragment. Spaces are percent-encoded; nothing else can reach the path.
+fn fetch_character_search_path(query: &str) -> Result<String, String> {
+    if !is_character_search_query(query) {
+        return Err(error::BAD_ARG.to_string());
+    }
+    Ok(format!(
+        "{}?q={}&limit=10",
+        MpFetchOp::CharacterSearch.path(),
+        query.replace(' ', "%20")
+    ))
+}
+
+/// True for the pinned character search query shape.
+fn is_character_search_pair(query: &str) -> bool {
+    let mut q_ok = false;
+    let mut limit_ok = false;
+    for pair in query.split('&') {
+        let (key, value) = pair.split_once('=').unwrap_or(("", ""));
+        match key {
+            "q" => {
+                if q_ok {
+                    return false;
+                }
+                let decoded = value.replace("%20", " ");
+                if !is_character_search_query(&decoded) {
+                    return false;
+                }
+                q_ok = true;
+            }
+            "limit" => {
+                if limit_ok || value != "10" {
+                    return false;
+                }
+                limit_ok = true;
+            }
+            _ => return false,
+        }
+    }
+    q_ok && limit_ok
+}
+
 /// Election list query: exactly `country=<validated country key>&view=
 /// summary`. The country key is uppercased by the builder, so the check
 /// accepts either case and rejects anything that is not a two-letter key.
@@ -1306,6 +1366,10 @@ fn is_allowlisted_call(method: &str, path_and_query: &str) -> bool {
         // The status read only ever runs with the pinned minimal layout.
         ("GET", "/api/client-status") => matches!(query, Some("layout=minimal")),
         ("GET", "/api/countries") => query.is_none(),
+        ("GET", "/api/characters/search") => match query {
+            Some(query) => is_character_search_pair(query),
+            None => false,
+        },
         ("GET", "/api/news") => match query {
             Some(query) => is_paged_query(query),
             None => false,
@@ -1882,6 +1946,8 @@ pub struct MpFetchDetail {
     pub governor_state_id: Option<String>,
     #[serde(default, rename = "countryCode")]
     pub country_code: Option<String>,
+    #[serde(default, rename = "searchQuery")]
+    pub search_query: Option<String>,
 }
 
 /// Fetch one allowlisted read through the live-site session. Resolves with
@@ -1908,6 +1974,7 @@ pub async fn mp_session_fetch(
                 || detail.governor_country_code.is_some()
                 || detail.governor_state_id.is_some()
                 || detail.country_code.is_some()
+                || detail.search_query.is_some()
             {
                 return Err(error::UNSUPPORTED_OP.to_string());
             }
@@ -1927,6 +1994,7 @@ pub async fn mp_session_fetch(
                 || detail.governor_country_code.is_some()
                 || detail.governor_state_id.is_some()
                 || detail.country_code.is_some()
+                || detail.search_query.is_some()
             {
                 return Err(error::UNSUPPORTED_OP.to_string());
             }
@@ -1946,6 +2014,7 @@ pub async fn mp_session_fetch(
                 || detail.governor_country_code.is_some()
                 || detail.governor_state_id.is_some()
                 || detail.country_code.is_some()
+                || detail.search_query.is_some()
             {
                 return Err(error::UNSUPPORTED_OP.to_string());
             }
@@ -1964,6 +2033,7 @@ pub async fn mp_session_fetch(
                 || detail.governor_country_code.is_some()
                 || detail.governor_state_id.is_some()
                 || detail.country_code.is_some()
+                || detail.search_query.is_some()
             {
                 return Err(error::UNSUPPORTED_OP.to_string());
             }
@@ -2010,6 +2080,7 @@ pub async fn mp_session_fetch(
                 || detail.governor_country_code.is_some()
                 || detail.governor_state_id.is_some()
                 || detail.country_code.is_some()
+                || detail.search_query.is_some()
             {
                 return Err(error::UNSUPPORTED_OP.to_string());
             }
@@ -2091,6 +2162,27 @@ pub async fn mp_session_fetch(
                 .ok_or_else(|| error::BAD_ARG.to_string())?;
             fetch_country_politicians_path(country)?
         }
+        MpFetchOp::CharacterSearch => {
+            if limit.is_some()
+                || offset.is_some()
+                || detail.election_id.is_some()
+                || detail.corporation_id.is_some()
+                || detail.union_id.is_some()
+                || detail.cabinet_country_code.is_some()
+                || detail.cabinet_position_id.is_some()
+                || detail.governor_country_code.is_some()
+                || detail.governor_state_id.is_some()
+                || detail.country_code.is_some()
+                || detail.search_query.is_some()
+            {
+                return Err(error::UNSUPPORTED_OP.to_string());
+            }
+            let query = detail
+                .search_query
+                .as_deref()
+                .ok_or_else(|| error::BAD_ARG.to_string())?;
+            fetch_character_search_path(query)?
+        }
         MpFetchOp::NewsFeed => {
             if detail.election_id.is_some()
                 || detail.corporation_id.is_some()
@@ -2100,6 +2192,7 @@ pub async fn mp_session_fetch(
                 || detail.governor_country_code.is_some()
                 || detail.governor_state_id.is_some()
                 || detail.country_code.is_some()
+                || detail.search_query.is_some()
             {
                 return Err(error::UNSUPPORTED_OP.to_string());
             }
@@ -2355,6 +2448,37 @@ mod tests {
         assert!(is_allowlisted_call("GET", "/api/news?limit=20&offset=0"));
         assert!(!is_allowlisted_call("GET", "/api/news"));
         assert!(!is_allowlisted_call("GET", "/api/news?limit=20"));
+
+        assert_eq!(
+            MpFetchOp::from_id("character-search"),
+            Some(MpFetchOp::CharacterSearch)
+        );
+        assert_eq!(MpFetchOp::CharacterSearch.path(), "/api/characters/search");
+        assert_eq!(
+            fetch_character_search_path("Ada").unwrap(),
+            "/api/characters/search?q=Ada&limit=10"
+        );
+        assert_eq!(
+            fetch_character_search_path("Ada Lovelace").unwrap(),
+            "/api/characters/search?q=Ada%20Lovelace&limit=10"
+        );
+        assert!(fetch_character_search_path("a").is_err());
+        assert!(fetch_character_search_path("").is_err());
+        assert!(fetch_character_search_path("Ada&limit=99").is_err());
+        assert!(fetch_character_search_path("Ada'--").is_err());
+        assert!(is_allowlisted_call(
+            "GET",
+            "/api/characters/search?q=Ada%20Lovelace&limit=10"
+        ));
+        assert!(!is_allowlisted_call("GET", "/api/characters/search?q=Ada"));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/characters/search?q=Ada&limit=50"
+        ));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/characters/search?q=Ada%20Lovelace&limit=10&x=1"
+        ));
     }
 
     #[test]

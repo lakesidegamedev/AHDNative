@@ -56,7 +56,7 @@ unqualified cash number.
 | Ask | Embedded panel | Embedded panel retains MP session and drafts | Physical-device sign-in return |
 | Wallet / Portfolio / Banking | Local balances, holdings and commands | Reported aggregate, campaign funds, currency balances and server savings commands | Bank selection, FX, loans, holdings and monetary-policy controls |
 | Notifications | Preview and local inbox | Server inbox and existing read/snooze/archive/preferences | MP preview and meaningful notification deep links |
-| Player mail | Not applicable to offline players | Inbox, sent, reader, reply and compose | Recipient discovery, full reference social flow |
+| Player mail | Not applicable to offline players | Inbox, sent, reader, reply and compose, with recipient search by name | The remaining reference social flow (reactions, forwarding, reporting flows) |
 | Settings | Shared device preferences | Same component | Physical-device dynamic text and transparency |
 | Help | Bundled local guide and native-safe support links | Drawer help group with the allowlisted guide, wiki, about and community destinations | A unified in-app contextual help surface for both modes |
 | Election/company/union/cabinet/governor detail | Existing local destination families and role gates | Existing capability-gated summary drill-ins from Standing | Full MP detail and action APIs |

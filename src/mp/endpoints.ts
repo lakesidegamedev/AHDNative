@@ -93,6 +93,12 @@
  *   authorAvatarUrl,imageUrl,isSystem,feedType,category,reactions,
  *   replyCount,createdAt}]}. The route caps the page at 50 and Native
  *   reads the widest page it allows.
+ * - character-search  GET /api/characters/search?q={query}&limit=10
+ *   public, no auth. Character search by name (AHDGame
+ *   src/app/api/characters/search/route.ts): 200
+ *   {results:[{id,userId,name,username,discordUsername,party,homeState,
+ *   avatarUrl,currentOffice}]}. The route ignores queries shorter than two
+ *   characters; the bridge pins the limit at 10 and encodes the fragment.
  * - turn-status       /api/game/turn/status    public; 404 uninitialized
  *   {singleplayer,currentTurn,currentYear,startingYear,preset,
  *   preIterationTurns,preIterationActive,isActive,isProcessing,
@@ -385,7 +391,8 @@ export type MpFetchOpId =
   | "country-parties"
   | "country-politicians"
   | "election-list"
-  | "news-feed";
+  | "news-feed"
+  | "character-search";
 
 export type MpMutateOpId =
   | "execute-action"

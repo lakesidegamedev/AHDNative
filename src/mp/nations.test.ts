@@ -176,6 +176,61 @@ describe("MpModeSession loadCountryRegions", () => {
   });
 });
 
+describe("MpModeSession searchCharacters", () => {
+  const results = JSON.stringify({
+    results: [
+      {
+        id: "507f1f77bcf86cd799439012",
+        name: "Bo",
+        username: "bo",
+        discordUsername: null,
+        party: "12",
+        homeState: "CA",
+        avatarUrl: null,
+        currentOffice: "Senator",
+      },
+    ],
+  });
+
+  it("projects the matches for a name fragment", async () => {
+    const { host, calls } = scriptedHost(enterScripts({ "character-search": [results] }));
+    const session = new MpModeSession(host);
+    await session.enter();
+    const snapshot = await session.searchCharacters("Bo");
+    expect(snapshot.characterSearch?.[0]).toMatchObject({
+      id: "507f1f77bcf86cd799439012",
+      name: "Bo",
+      currentOffice: "Senator",
+    });
+    expect(snapshot.phase).toBe("ready");
+    expect(calls.filter((call) => call === "fetch:character-search")).toHaveLength(1);
+  });
+
+  it("never sends a fragment the route would ignore", async () => {
+    const { host, calls } = scriptedHost(enterScripts({ "character-search": [results] }));
+    const session = new MpModeSession(host);
+    await session.enter();
+    for (const bad of ["", " ", "a", "   "]) {
+      const snapshot = await session.searchCharacters(bad);
+      expect(snapshot.characterSearch).toBeNull();
+    }
+    expect(calls.filter((call) => call === "fetch:character-search")).toHaveLength(0);
+  });
+
+  it("keeps the last good matches when the search fails", async () => {
+    const { host } = scriptedHost(
+      enterScripts({ "character-search": [results, { reject: "remote-error:500:Server error" }] }),
+    );
+    const session = new MpModeSession(host);
+    await session.enter();
+    await session.searchCharacters("Bo");
+    const snapshot = await session.searchCharacters("Bo");
+    expect(snapshot.characterSearch?.[0]?.name).toBe("Bo");
+    expect(snapshot.phase).toBe("ready");
+    expect(snapshot.error).toBeNull();
+  });
+});
+
 describe("MpModeSession loadNewsFeed", () => {
   const feed = JSON.stringify({
     posts: [

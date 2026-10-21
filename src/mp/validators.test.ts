@@ -9,6 +9,7 @@ import {
   isGovernorStateId,
   parseCabinetDetail,
   parseCharacterMe,
+  parseCharacterSearch,
   parseClientNav,
   parseClientStatus,
   parseCountries,
@@ -610,6 +611,47 @@ describe("parseCountryOverview", () => {
   it("rejects an error envelope and a malformed body", () => {
     expect(parseCountryOverview(JSON.stringify({ error: "Invalid country code" }))).toBeNull();
     expect(parseCountryOverview("not json")).toBeNull();
+  });
+});
+
+describe("parseCharacterSearch", () => {
+  it("projects the name matches", () => {
+    expect(
+      parseCharacterSearch(
+        JSON.stringify({
+          results: [
+            {
+              id: "507f1f77bcf86cd799439012",
+              userId: "507f1f77bcf86cd799439099",
+              name: "Bo",
+              username: "bo",
+              discordUsername: null,
+              party: "12",
+              homeState: "CA",
+              avatarUrl: null,
+              currentOffice: "Senator",
+            },
+          ],
+        }),
+      ),
+    ).toEqual([
+      {
+        id: "507f1f77bcf86cd799439012",
+        name: "Bo",
+        username: "bo",
+        discordUsername: null,
+        party: "12",
+        homeState: "CA",
+        currentOffice: "Senator",
+      },
+    ]);
+  });
+
+  it("fails closed on a malformed match list", () => {
+    expect(parseCharacterSearch(JSON.stringify({ results: [{ id: "not-hex" }] }))).toBeNull();
+    expect(parseCharacterSearch(JSON.stringify({ results: [{ name: "Bo" }] }))).toBeNull();
+    expect(parseCharacterSearch(JSON.stringify({ results: "nope" }))).toBeNull();
+    expect(parseCharacterSearch("not json")).toBeNull();
   });
 });
 

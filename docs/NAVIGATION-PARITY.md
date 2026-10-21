@@ -938,3 +938,28 @@ Delivered:
 Focused evidence: `src/ui/MpSupportLinks510.test.tsx` (2 rendered tests: the
 links open the allowlisted destination, a refused open reports honestly). No
 physical-iPhone evidence is claimed; #363/#436 remain open.
+
+## 28. MP mail recipient discovery (#510)
+
+The reference lets a player find a mail recipient by name. Multiplayer
+accepted a pasted 24-character character id, which no player can obtain, so
+the compose form was unusable in practice.
+
+Delivered:
+
+- The compose form gained a "Find a player" search, backed by the audited
+  public character search read (`GET /api/characters/search?q={query}&limit=
+  10`). The bridge validates the fragment (two to thirty-two characters,
+  letters, digits, spaces, hyphens, underscores), percent-encodes spaces
+  and pins the limit, so no raw query text can reach the server.
+- Picking a match fills the recipient field and names the recipient; the
+  pasted-id field stays as the fallback.
+- A failed search keeps the draft and the session, and the search is never
+  sent for a fragment the route would ignore.
+
+Focused evidence: `src/ui/MpMailRecipientSearch510.test.tsx` (2 rendered
+tests: the search fills the recipient, a failed search keeps the draft) and
+`src/mp/nations.test.ts` (the search projection, the refused fragment, the
+last-good-matches posture) plus the Rust path/allowlist assertions in
+`mp_session::tests::world_reads_resolve_to_pinned_paths`. No
+physical-iPhone evidence is claimed; #363/#436 remain open.

@@ -3,6 +3,7 @@ import {
   parseCabinetDetail,
   parseCharacterMe,
   parseClientNav,
+  parseCharacterSearch,
   parseClientStatus,
   parseCountries,
   parseCountryOverview,
@@ -54,6 +55,7 @@ import {
   type MpNationPartyView,
   type MpNationPoliticianView,
   type MpNewsPostView,
+  type MpCharacterSearchResult,
   type MpUnionDetailView,
 } from "./validators";
 import type { MpMutateOpId } from "./endpoints";
@@ -152,6 +154,12 @@ export interface MpSnapshot {
    * news destination opens.
    */
   newsFeed: MpNewsPostView[] | null;
+  /**
+   * Character-search matches for the mail recipient picker, from
+   * GET /api/characters/search. Loaded on demand and cleared when the
+   * query changes.
+   */
+  characterSearch: MpCharacterSearchResult[] | null;
   /** Last server-confirmed notice (action result); cleared on next load. */
   notice: string | null;
   /** Last human-readable failure; cleared when a call succeeds. */
@@ -185,6 +193,7 @@ const INITIAL_SNAPSHOT: MpSnapshot = {
   nationPoliticians: null,
   electionList: null,
   newsFeed: null,
+  characterSearch: null,
   notice: null,
   error: null,
   retryAfter: null,
@@ -204,9 +213,9 @@ export const MP_MAIL_LIMIT = 50;
 
 function emptyAuthed(): Pick<
   MpSnapshot,
-  "character" | "savings" | "turn" | "capabilities" | "electionDetail" | "corporationDetail" | "unionDetail" | "cabinetDetail" | "governorDetail" | "inbox" | "mailInbox" | "mailSent" | "presence" | "status" | "nations" | "nationOverview" | "nationRegions" | "nationParties" | "nationPoliticians" | "electionList" | "newsFeed"
+  "character" | "savings" | "turn" | "capabilities" | "electionDetail" | "corporationDetail" | "unionDetail" | "cabinetDetail" | "governorDetail" | "inbox" | "mailInbox" | "mailSent" | "presence" | "status" | "nations" | "nationOverview" | "nationRegions" | "nationParties" | "nationPoliticians" | "electionList" | "newsFeed" | "characterSearch"
 > {
-  return { character: null, savings: null, turn: null, capabilities: null, electionDetail: null, corporationDetail: null, unionDetail: null, cabinetDetail: null, governorDetail: null, inbox: null, mailInbox: null, mailSent: null, presence: null, status: null, nations: null, nationOverview: null, nationRegions: null, nationParties: null, nationPoliticians: null, electionList: null, newsFeed: null };
+  return { character: null, savings: null, turn: null, capabilities: null, electionDetail: null, corporationDetail: null, unionDetail: null, cabinetDetail: null, governorDetail: null, inbox: null, mailInbox: null, mailSent: null, presence: null, status: null, nations: null, nationOverview: null, nationRegions: null, nationParties: null, nationPoliticians: null, electionList: null, newsFeed: null, characterSearch: null };
 }
 
 export class MpModeSession {
@@ -696,6 +705,40 @@ export class MpModeSession {
       const nationPoliticians = parseCountryPoliticians(result.bodyText);
       if (!nationPoliticians) return this.get();
       return this.set({ nationPoliticians });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
+   * Search characters by name for the mail recipient picker (#510). The
+   * read is public; the fragment is validated here and again by the Rust
+   * bridge, which percent-encodes it. A failed search keeps the previous
+   * matches and never fails the session. Never throws.
+   */
+  async searchCharacters(query: string): Promise<MpSnapshot> {
+    const trimmed = typeof query === "string" ? query.trim() : "";
+    if (trimmed.length < 2 || trimmed.length > 32) return this.set({ characterSearch: null });
+    try {
+      const result = await mpFetch(
+        this.host,
+        "character-search",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        trimmed,
+      );
+      if (result.kind !== "ok") return this.get();
+      const characterSearch = parseCharacterSearch(result.bodyText);
+      if (!characterSearch) return this.get();
+      return this.set({ characterSearch });
     } catch {
       return this.get();
     }

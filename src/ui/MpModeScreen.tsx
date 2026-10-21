@@ -83,6 +83,7 @@ const IDLE: MpSnapshot = {
   nationPoliticians: null,
   electionList: null,
   newsFeed: null,
+  characterSearch: null,
   notice: null,
   error: null,
   retryAfter: null,
@@ -192,6 +193,10 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
   const [noticeScope, setNoticeScope] = useState<"general" | "mail">("general");
   const [openMailId, setOpenMailId] = useState<string | null>(null);
   const [composeTo, setComposeTo] = useState("");
+  /* Mail recipient picker (#510): the reference lets a player find a
+   * recipient by name; multiplayer only accepted a pasted character id. */
+  const [recipientQuery, setRecipientQuery] = useState("");
+  const [recipientName, setRecipientName] = useState<string | null>(null);
   const [composeSubject, setComposeSubject] = useState("");
   const [composeBody, setComposeBody] = useState("");
   const [adminOpen, setAdminOpen] = useState(false);
@@ -739,6 +744,16 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
     setComposeBody("");
   }
 
+  /* Find a mail recipient by name. The search is public and validated; a
+   * failure keeps the previous matches and never disturbs the draft. */
+  function searchRecipients() {
+    const query = recipientQuery.trim();
+    if (query.length < 2) return;
+    void sessionRef.current!.searchCharacters(query).then((next) => {
+      setSnapshot(next);
+    });
+  }
+
   function sendComposedMail() {
     const toCharacterId = composeTo;
     const subject = composeSubject;
@@ -873,6 +888,7 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
   const profileHome = profileHomeName(snapshot.character, snapshot.capabilities);
   const electionList = snapshot.electionList;
   const newsFeed = snapshot.newsFeed;
+  const recipientMatches = snapshot.characterSearch ?? [];
   const nationParties = selectedNation ? snapshot.nationParties : null;
   const nationPoliticians = selectedNation ? snapshot.nationPoliticians : null;
   const homeCountryId = snapshot.character?.countryId ?? snapshot.capabilities?.characterCountryId ?? null;
@@ -1829,8 +1845,49 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
             )}
             <h3 className="ahd-h2">Compose</h3>
             <p className="ahd-muted" style={{ marginTop: 0 }}>
-              Send player mail with a pasted 24-character recipient character ID.
+              Find a player by name, or paste a 24-character recipient character ID.
             </p>
+            <div className="ahd-mp-row">
+              <label className="ahd-field ahd-mp-input">
+                <span className="ahd-label">Find a player</span>
+                <input
+                  value={recipientQuery}
+                  disabled={busy}
+                  placeholder="Name to search for"
+                  onChange={(event) => setRecipientQuery(event.currentTarget.value)}
+                />
+              </label>
+              <button
+                className="ahd-btn ahd-btn-sm"
+                disabled={busy || recipientQuery.trim().length < 2}
+                onClick={() => { searchRecipients(); }}
+              >
+                Search
+              </button>
+            </div>
+            {recipientMatches.length > 0 && (
+              <ul className="ahd-mp-list" aria-label="Player matches">
+                {recipientMatches.map((match) => (
+                  <li key={match.id}>
+                    <button
+                      type="button"
+                      className="ahd-profile-link"
+                      onClick={() => {
+                        setComposeTo(match.id);
+                        setRecipientName(match.name);
+                        setRecipientQuery("");
+                        setSnapshot((current) => ({ ...current, characterSearch: null }));
+                      }}
+                    >
+                      {match.name}
+                      {match.currentOffice ? " \u00b7 " + match.currentOffice : ""}
+                      {match.homeState ? " \u00b7 " + match.homeState : ""}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {recipientName ? <p className="ahd-muted">To: {recipientName}</p> : null}
             <div className="ahd-mp-row">
               <label className="ahd-field ahd-mp-input">
                 <span className="ahd-label">Recipient character ID</span>
