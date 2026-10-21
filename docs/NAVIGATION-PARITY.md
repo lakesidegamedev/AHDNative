@@ -1048,6 +1048,12 @@ Delivered:
   refuses it, and when the default arm stops refusing a slot. The same
   review found the same defect in the mail recipient search arm, which would
   have made that read fail on a device.
+- The same review found the matching defect on the TypeScript side: every
+  country-scoped read passed the country code one slot too early, so it
+  landed in the governor-state slot instead of the country slot. The reads
+  would have failed on a device and passed the adapter tests, which use a
+  fake host. `src/mp/bridgeSlots.test.ts` now pins the position of every
+  slot the new reads use.
 
 Focused evidence: `cargo test --manifest-path src-tauri/Cargo.toml --lib`
 (93 tests) with `cargo fmt --check` and
