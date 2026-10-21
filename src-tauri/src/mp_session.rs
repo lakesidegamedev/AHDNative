@@ -2527,6 +2527,99 @@ mod tests {
     }
 
     #[test]
+    fn every_pinned_read_passes_the_transport_allowlist() {
+        // The builders and the allowlist are the two halves of the transport
+        // contract: a read whose pinned path the allowlist refuses would fail
+        // on a device and pass every other test.
+        for (op, path) in [
+            (
+                MpFetchOp::ElectionDetail,
+                fetch_election_path("68a000000000000000000001").unwrap(),
+            ),
+            (
+                MpFetchOp::CorporationDetail,
+                fetch_corporation_path("42").unwrap(),
+            ),
+            (
+                MpFetchOp::UnionDetail,
+                fetch_union_path("68a000000000000000000001").unwrap(),
+            ),
+            (
+                MpFetchOp::CabinetDetail,
+                fetch_cabinet_path("us", "secretary_of_state").unwrap(),
+            ),
+            (
+                MpFetchOp::GovernorDetail,
+                fetch_governor_path("us", "CA").unwrap(),
+            ),
+            (
+                MpFetchOp::CountryOverview,
+                fetch_country_overview_path("US").unwrap(),
+            ),
+            (
+                MpFetchOp::CountryStates,
+                fetch_country_states_path("US").unwrap(),
+            ),
+            (
+                MpFetchOp::CountryParties,
+                fetch_country_parties_path("US").unwrap(),
+            ),
+            (
+                MpFetchOp::CountryPoliticians,
+                fetch_country_politicians_path("US").unwrap(),
+            ),
+            (
+                MpFetchOp::CountryLeaders,
+                fetch_country_leaders_path("US").unwrap(),
+            ),
+            (
+                MpFetchOp::ElectionList,
+                fetch_election_list_path("US").unwrap(),
+            ),
+            (
+                MpFetchOp::CharacterSearch,
+                fetch_character_search_path("Ada").unwrap(),
+            ),
+        ] {
+            assert!(
+                is_allowlisted_call("GET", &path),
+                "{op:?} path {path} must be allowlisted"
+            );
+        }
+        for (op, limit, offset) in [
+            (MpFetchOp::Notifications, Some(25), Some(0)),
+            (MpFetchOp::MailInbox, Some(50), Some(0)),
+            (MpFetchOp::MailSent, Some(50), Some(0)),
+            (MpFetchOp::NewsFeed, Some(20), Some(0)),
+        ] {
+            let path = fetch_path_and_query(op, limit, offset).unwrap();
+            assert!(
+                is_allowlisted_call("GET", &path),
+                "{op:?} path {path} must be allowlisted"
+            );
+        }
+        for op in [
+            MpFetchOp::AuthSession,
+            MpFetchOp::CharacterMe,
+            MpFetchOp::SavingsAccounts,
+            MpFetchOp::ClientNav,
+            MpFetchOp::ClientStatus,
+            MpFetchOp::ClientStatusFull,
+            MpFetchOp::TurnStatus,
+            MpFetchOp::PlayersOnline,
+            MpFetchOp::GameTime,
+            MpFetchOp::AdminMaintenance,
+            MpFetchOp::Countries,
+        ] {
+            let path = fetch_path_and_query(op, None, None).unwrap();
+            assert!(
+                is_allowlisted_call("GET", &path),
+                "{op:?} path {path} must be allowlisted"
+            );
+        }
+    }
+
+    #[test]
     fn world_reads_resolve_to_pinned_paths() {
         assert_eq!(MpFetchOp::from_id("countries"), Some(MpFetchOp::Countries));
         assert_eq!(MpFetchOp::Countries.path(), "/api/countries");

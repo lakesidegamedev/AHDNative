@@ -1053,7 +1053,12 @@ Delivered:
   landed in the governor-state slot instead of the country slot. The reads
   would have failed on a device and passed the adapter tests, which use a
   fake host. `src/mp/bridgeSlots.test.ts` now pins the position of every
-  slot the new reads use.
+  slot the new reads use, and `src/mp/adapterSlots.test.ts` pins the slots
+  every read may use.
+- A third check closes the transport contract: the Rust test
+  `every_pinned_read_passes_the_transport_allowlist` builds every pinned
+  request path and asserts the transport allowlist accepts it, so a builder
+  and an allowlist can never drift apart.
 
 Focused evidence: `cargo test --manifest-path src-tauri/Cargo.toml --lib`
 (93 tests) with `cargo fmt --check` and
