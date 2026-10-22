@@ -1,10 +1,11 @@
 ## MP world destinations, resource details and bridge repairs, 2026-10-21 (#510 partial)
 
 Follow-up to the batch merged in [PR #748](https://github.com/lakesidegamedev/AHDNative/pull/748)
-(`7a7018e3`). [PR #752](https://github.com/lakesidegamedev/AHDNative/pull/752)
-lands the notification preview, the nation search, the nation leadership and the
-per-turn campaign income breakdown, and repairs three bridge defects that a
-self-review of the merged batch found.
+(`7a7018e3`) and [PR #750](https://github.com/lakesidegamedev/AHDNative/pull/750)
+(the per-turn campaign income breakdown).
+[PR #752](https://github.com/lakesidegamedev/AHDNative/pull/752) lands the
+notification preview, the nation search and the nation leadership, and repairs
+three bridge defects that a self-review of the merged batch found.
 
 The defects were all device-only failures that the automated suites could not
 see, because the adapter tests use a fake host:
