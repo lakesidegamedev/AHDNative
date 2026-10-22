@@ -23,6 +23,7 @@ const SLOTS = [
   "governorStateId",
   "countryCode",
   "searchQuery",
+  "politicianId",
 ] as const;
 
 type Slot = (typeof SLOTS)[number];
@@ -50,6 +51,7 @@ const EXPECTED: Record<string, Slot[]> = {
   "country-leaders": ["countryCode"],
   "election-list": ["countryCode"],
   "character-search": ["searchQuery"],
+  "politician-detail": ["politicianId"],
   "news-feed": ["limit", "offset"],
   "election-detail": ["electionId"],
   "corporation-detail": ["corporationId"],

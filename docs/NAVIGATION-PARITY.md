@@ -1030,6 +1030,32 @@ the preview lists the latest notifications and links into the inbox, the
 nation directory filters by name). No physical-iPhone evidence is claimed;
 #363/#436 remain open.
 
+## 33. MP politician profile (#510)
+
+(Opened from the nation drill-in; see the section body below.)
+
+The reference has a politician page; the multiplayer nation drill-in listed
+politicians without letting a player open one.
+
+Delivered:
+
+- A new audited read, `GET /api/politician/{id}` (public, no auth), answers a
+  politician's public profile. The id is a 24-hex character or NPP id, checked
+  in the adapter and again by the Rust bridge, and it travels in its own
+  bridge slot.
+- The politicians in the nation drill-in are now entries: opening one shows
+  the profile the server reports - type, office, party, home region,
+  political and national influence, favorability, policies and bio - and Back
+  returns to the nation.
+
+Focused evidence: `src/ui/MpPolitician510.test.tsx` (the profile opens from
+the nation drill-in and Back returns), `src/mp/nations.test.ts` (the profile
+projection and the invalid-id refusal), `src/mp/bridgeSlots.test.ts` and
+`src/mp/adapterSlots.test.ts` (the id lands in the politician slot), and the
+Rust tests `politician_profile_read_pins_the_id` and
+`every_pinned_read_passes_the_transport_allowlist`. No physical-iPhone
+evidence is claimed; #363/#436 remain open.
+
 ## 32. Bridge detail-slot guards (#510)
 
 A self-review of the merged bridge found a real defect the automated suites

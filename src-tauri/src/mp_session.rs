@@ -201,6 +201,10 @@ pub enum MpFetchOp {
     /// The world news feed; GET /api/news?limit={limit}&offset={offset}
     /// (public, no auth). The pagination mirrors the other paged reads.
     NewsFeed,
+    /// A politician's public profile; GET /api/politician/{id} (public, no
+    /// auth, 400 on an invalid id, 404 when the politician is gone). The id
+    /// is a 24-hex character or NPP id.
+    PoliticianDetail,
     /// Character search by name; GET /api/characters/search?q={query}&
     /// limit=10 (public, no auth). The query is a plain name fragment,
     /// validated and percent-encoded by the bridge.
@@ -237,6 +241,7 @@ impl MpFetchOp {
             "election-list" => Some(Self::ElectionList),
             "news-feed" => Some(Self::NewsFeed),
             "character-search" => Some(Self::CharacterSearch),
+            "politician-detail" => Some(Self::PoliticianDetail),
             _ => None,
         }
     }
@@ -270,6 +275,7 @@ impl MpFetchOp {
             Self::ElectionList => "/api/elections",
             Self::NewsFeed => "/api/news",
             Self::CharacterSearch => "/api/characters/search",
+            Self::PoliticianDetail => "/api/politician",
         }
     }
 }
@@ -834,6 +840,31 @@ fn is_country_leaders_path(path: &str) -> bool {
         return false;
     };
     is_country_code(code)
+}
+
+/// A politician reference: the 24-hex character or NPP id the server uses.
+fn is_politician_id(value: &str) -> bool {
+    value.len() == 24 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+/// Build the exact politician profile request path from a validated id.
+fn fetch_politician_path(politician_id: &str) -> Result<String, String> {
+    if !is_politician_id(politician_id) {
+        return Err(error::BAD_ARG.to_string());
+    }
+    Ok(format!(
+        "{}/{}",
+        MpFetchOp::PoliticianDetail.path(),
+        politician_id
+    ))
+}
+
+/// True for the pinned politician profile path shape.
+fn is_politician_path(path: &str) -> bool {
+    let Some(id) = path.strip_prefix("/api/politician/") else {
+        return false;
+    };
+    !id.contains('/') && is_politician_id(id)
 }
 
 /// True for the pinned nation politicians path shape.
@@ -1411,6 +1442,9 @@ fn is_allowlisted_call(method: &str, path_and_query: &str) -> bool {
             matches!(query, Some("layout=minimal") | Some("layout=full"))
         }
         ("GET", "/api/countries") => query.is_none(),
+        ("GET", path) if path.starts_with("/api/politician/") => {
+            query.is_none() && is_politician_path(path)
+        }
         ("GET", "/api/characters/search") => match query {
             Some(query) => is_character_search_pair(query),
             None => false,
@@ -1994,6 +2028,8 @@ pub struct MpFetchDetail {
     pub country_code: Option<String>,
     #[serde(default, rename = "searchQuery")]
     pub search_query: Option<String>,
+    #[serde(default, rename = "politicianId")]
+    pub politician_id: Option<String>,
 }
 
 /// Fetch one allowlisted read through the live-site session. Resolves with
@@ -2245,6 +2281,27 @@ pub async fn mp_session_fetch(
                 .ok_or_else(|| error::BAD_ARG.to_string())?;
             fetch_country_leaders_path(country)?
         }
+        MpFetchOp::PoliticianDetail => {
+            if limit.is_some()
+                || offset.is_some()
+                || detail.election_id.is_some()
+                || detail.corporation_id.is_some()
+                || detail.union_id.is_some()
+                || detail.cabinet_country_code.is_some()
+                || detail.cabinet_position_id.is_some()
+                || detail.governor_country_code.is_some()
+                || detail.governor_state_id.is_some()
+                || detail.country_code.is_some()
+                || detail.search_query.is_some()
+            {
+                return Err(error::UNSUPPORTED_OP.to_string());
+            }
+            let id = detail
+                .politician_id
+                .as_deref()
+                .ok_or_else(|| error::BAD_ARG.to_string())?;
+            fetch_politician_path(id)?
+        }
         MpFetchOp::CharacterSearch => {
             if limit.is_some()
                 || offset.is_some()
@@ -2311,6 +2368,7 @@ pub async fn mp_session_fetch(
                 || detail.governor_state_id.is_some()
                 || detail.country_code.is_some()
                 || detail.search_query.is_some()
+                || detail.politician_id.is_some()
             {
                 return Err(error::BAD_ARG.to_string());
             }
@@ -2464,13 +2522,41 @@ mod tests {
 
     /// The detail slots the bridge accepts. Each slot belongs to exactly one
     /// read, so an arm must either read its slot or refuse it, never both.
-    const DETAIL_SLOTS: [&str; 5] = [
+    const DETAIL_SLOTS: [&str; 6] = [
         "election_id",
         "corporation_id",
         "union_id",
         "country_code",
         "search_query",
+        "politician_id",
     ];
+
+    #[test]
+    fn politician_profile_read_pins_the_id() {
+        assert_eq!(
+            MpFetchOp::from_id("politician-detail"),
+            Some(MpFetchOp::PoliticianDetail)
+        );
+        assert_eq!(
+            fetch_politician_path("68a000000000000000000001").unwrap(),
+            "/api/politician/68a000000000000000000001"
+        );
+        assert!(is_allowlisted_call(
+            "GET",
+            "/api/politician/68a000000000000000000001"
+        ));
+        assert!(!is_allowlisted_call("GET", "/api/politician/not-an-id"));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/politician/68a000000000000000000001?x=1"
+        ));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/politician/68a000000000000000000001/extra"
+        ));
+        assert!(fetch_politician_path("").is_err());
+        assert!(fetch_politician_path("68a00000000000000000000z").is_err());
+    }
 
     #[test]
     fn every_command_arm_uses_or_refuses_each_detail_slot_exactly_once() {
@@ -2495,6 +2581,7 @@ mod tests {
             "ClientStatusFull",
             "CharacterSearch",
             "NewsFeed",
+            "PoliticianDetail",
         ] {
             let arm = command_arm(source, op);
             for slot in DETAIL_SLOTS {
@@ -2579,6 +2666,10 @@ mod tests {
             (
                 MpFetchOp::CharacterSearch,
                 fetch_character_search_path("Ada").unwrap(),
+            ),
+            (
+                MpFetchOp::PoliticianDetail,
+                fetch_politician_path("68a000000000000000000001").unwrap(),
             ),
         ] {
             assert!(
