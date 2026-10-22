@@ -989,3 +989,77 @@ honest), `src/mp/status.test.ts` (the breakdown projection and the
 last-good-view posture) and the Rust test
 `mp_session::tests::full_status_read_pins_the_full_layout`. No
 physical-iPhone evidence is claimed; #363/#436 remain open.
+
+## 30. MP nation leadership (#510)
+
+The reference nation page names the people who run the country. The
+multiplayer nation drill-in stopped at the institutions.
+
+Delivered:
+
+- A new audited read, `GET /api/country/[code]/legislature/leaders`,
+  answers the nation's legislature leadership. The Rust bridge pins the
+  country code and the path shape.
+- The nation card now names the prime minister and the opposition leader
+  with their party, exactly as the server reports them. A seat the server
+  does not publish (the speaker, for now) stays absent.
+
+Focused evidence: `src/ui/MpNations510.test.tsx` (the leadership rows ride
+the nation drill-in), `src/mp/nations.test.ts` (the projection, the invalid
+code refusal, the last-good-holders posture) and the Rust path/allowlist
+assertions. No physical-iPhone evidence is claimed; #363/#436 remain open.
+
+## 31. MP notification preview and nation search (#510)
+
+Two behaviours the reference status bar and the singleplayer world
+directory have and multiplayer did not.
+
+Delivered:
+
+- The multiplayer Inbox chip opens a notification preview, the way the
+  reference bell and the singleplayer footer bell do: the latest
+  notifications, the unread count, and a link into the inbox. The preview
+  reads the same server inbox the inbox list shows; it never claims a
+  notification the server did not send.
+- The multiplayer Nations destination gained the search field the
+  singleplayer world directory has, filtering the rows by name or country
+  code.
+
+Focused evidence: `src/ui/MpPreviewParity510.test.tsx` (2 rendered tests:
+the preview lists the latest notifications and links into the inbox, the
+nation directory filters by name). No physical-iPhone evidence is claimed;
+#363/#436 remain open.
+
+## 32. Bridge detail-slot guards (#510)
+
+A self-review of the merged bridge found a real defect the automated suites
+could not see: the nation-leadership arm rejected the country code it reads,
+so that read could never run on a device, and the default arm accepted a
+stray country or search slot on the ops that ignore them.
+
+Delivered:
+
+- The country-scoped arms read the country code they need, and every other
+  op rejects a country or search slot it does not read.
+- A Rust test now pins the whole invariant against the source, because the
+  command arms need a Tauri app handle to run:
+  `every_command_arm_uses_or_refuses_each_detail_slot_exactly_once` walks
+  every command arm and fails when an arm both reads a detail slot and
+  refuses it, and when the default arm stops refusing a slot. The same
+  review found the same defect in the mail recipient search arm, which would
+  have made that read fail on a device.
+- The same review found the matching defect on the TypeScript side: every
+  country-scoped read passed the country code one slot too early, so it
+  landed in the governor-state slot instead of the country slot. The reads
+  would have failed on a device and passed the adapter tests, which use a
+  fake host. `src/mp/bridgeSlots.test.ts` now pins the position of every
+  slot the new reads use, and `src/mp/adapterSlots.test.ts` pins the slots
+  every read may use.
+- A third check closes the transport contract: the Rust test
+  `every_pinned_read_passes_the_transport_allowlist` builds every pinned
+  request path and asserts the transport allowlist accepts it, so a builder
+  and an allowlist can never drift apart.
+
+Focused evidence: `cargo test --manifest-path src-tauri/Cargo.toml --lib`
+(93 tests) with `cargo fmt --check` and
+`cargo clippy --all-targets -- -D warnings` clean.

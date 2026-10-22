@@ -189,6 +189,10 @@ pub enum MpFetchOp {
     /// The nation's politicians; GET /api/country/[code]/politicians
     /// (public, no auth, 400 on an invalid country).
     CountryPoliticians,
+    /// The nation's legislature leadership; GET
+    /// /api/country/[code]/legislature/leaders (public, no auth, 404 on
+    /// an invalid country).
+    CountryLeaders,
     /// A nation's election list; GET /api/elections?country={code}&view=
     /// summary (public with optional auth, 400 on an invalid country).
     /// The country code is a two-letter COUNTRY_CONFIGS key; see
@@ -229,6 +233,7 @@ impl MpFetchOp {
             "country-states" => Some(Self::CountryStates),
             "country-parties" => Some(Self::CountryParties),
             "country-politicians" => Some(Self::CountryPoliticians),
+            "country-leaders" => Some(Self::CountryLeaders),
             "election-list" => Some(Self::ElectionList),
             "news-feed" => Some(Self::NewsFeed),
             "character-search" => Some(Self::CharacterSearch),
@@ -261,6 +266,7 @@ impl MpFetchOp {
             Self::CountryStates => "/api/country",
             Self::CountryParties => "/api/country",
             Self::CountryPoliticians => "/api/country",
+            Self::CountryLeaders => "/api/country",
             Self::ElectionList => "/api/elections",
             Self::NewsFeed => "/api/news",
             Self::CharacterSearch => "/api/characters/search",
@@ -804,6 +810,30 @@ fn is_country_states_path(path: &str) -> bool {
 /// True for the pinned nation parties path shape.
 fn is_country_parties_path(path: &str) -> bool {
     is_country_suffix_path(path, "parties")
+}
+
+/// Build the exact nation legislature leadership request path from a
+/// validated country key.
+fn fetch_country_leaders_path(country_code: &str) -> Result<String, String> {
+    if !is_country_code(country_code) {
+        return Err(error::BAD_ARG.to_string());
+    }
+    Ok(format!(
+        "{}/{}/legislature/leaders",
+        MpFetchOp::CountryLeaders.path(),
+        country_code.to_ascii_uppercase()
+    ))
+}
+
+/// True for the pinned nation legislature leadership path shape.
+fn is_country_leaders_path(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/country/") else {
+        return false;
+    };
+    let Some(code) = rest.strip_suffix("/legislature/leaders") else {
+        return false;
+    };
+    is_country_code(code)
 }
 
 /// True for the pinned nation politicians path shape.
@@ -1411,7 +1441,8 @@ fn is_allowlisted_call(method: &str, path_and_query: &str) -> bool {
                     || is_country_overview_path(path)
                     || is_country_states_path(path)
                     || is_country_parties_path(path)
-                    || is_country_politicians_path(path))
+                    || is_country_politicians_path(path)
+                    || is_country_leaders_path(path))
         }
         ("POST", "/api/actions/execute") | ("PATCH", "/api/notifications") => query.is_none(),
         ("PUT", "/api/notifications/preferences") => query.is_none(),
@@ -2194,6 +2225,26 @@ pub async fn mp_session_fetch(
             }
             fetch_path_and_query(op, limit, offset)?
         }
+        MpFetchOp::CountryLeaders => {
+            if limit.is_some()
+                || offset.is_some()
+                || detail.election_id.is_some()
+                || detail.corporation_id.is_some()
+                || detail.union_id.is_some()
+                || detail.cabinet_country_code.is_some()
+                || detail.cabinet_position_id.is_some()
+                || detail.governor_country_code.is_some()
+                || detail.governor_state_id.is_some()
+                || detail.search_query.is_some()
+            {
+                return Err(error::UNSUPPORTED_OP.to_string());
+            }
+            let country = detail
+                .country_code
+                .as_deref()
+                .ok_or_else(|| error::BAD_ARG.to_string())?;
+            fetch_country_leaders_path(country)?
+        }
         MpFetchOp::CharacterSearch => {
             if limit.is_some()
                 || offset.is_some()
@@ -2205,7 +2256,6 @@ pub async fn mp_session_fetch(
                 || detail.governor_country_code.is_some()
                 || detail.governor_state_id.is_some()
                 || detail.country_code.is_some()
-                || detail.search_query.is_some()
             {
                 return Err(error::UNSUPPORTED_OP.to_string());
             }
@@ -2250,6 +2300,8 @@ pub async fn mp_session_fetch(
             fetch_election_list_path(country)?
         }
         _ => {
+            // Every detail slot must be absent on the ops that do not read
+            // it, including the country and search slots.
             if detail.election_id.is_some()
                 || detail.corporation_id.is_some()
                 || detail.union_id.is_some()
@@ -2258,6 +2310,7 @@ pub async fn mp_session_fetch(
                 || detail.governor_country_code.is_some()
                 || detail.governor_state_id.is_some()
                 || detail.country_code.is_some()
+                || detail.search_query.is_some()
             {
                 return Err(error::BAD_ARG.to_string());
             }
@@ -2380,6 +2433,192 @@ mod tests {
         assert!(fetch_path_and_query(MpFetchOp::ClientStatusFull, Some(5), None).is_err());
     }
 
+    /// The body of one command arm, whitespace-insensitive: from its marker
+    /// to the next arm, with the formatting rustfmt applied removed so the
+    /// checks read the same whatever the line breaks are.
+    fn command_arm(source: &str, op: &str) -> String {
+        // The command's own match, not the path builders: both mention the
+        // same variants.
+        let command_start = source
+            .find("pub async fn mp_session_fetch")
+            .expect("the fetch command must exist");
+        let marker = format!("MpFetchOp::{op} => {{");
+        let start = source[command_start..]
+            .find(&marker)
+            .unwrap_or_else(|| panic!("arm for {op} must exist"))
+            + command_start;
+        let rest = &source[start + marker.len()..];
+        // The arm ends at the next arm, at the default arm, or at the end of
+        // the match, whichever comes first.
+        let end = [
+            rest.find("        MpFetchOp::"),
+            rest.find("        _ => {"),
+            rest.find("        };"),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
+        .unwrap_or(rest.len());
+        rest[..end].chars().filter(|c| !c.is_whitespace()).collect()
+    }
+
+    /// The detail slots the bridge accepts. Each slot belongs to exactly one
+    /// read, so an arm must either read its slot or refuse it, never both.
+    const DETAIL_SLOTS: [&str; 5] = [
+        "election_id",
+        "corporation_id",
+        "union_id",
+        "country_code",
+        "search_query",
+    ];
+
+    #[test]
+    fn every_command_arm_uses_or_refuses_each_detail_slot_exactly_once() {
+        // The command arms need a Tauri app handle to run, so the invariant
+        // is checked against the source: an arm that both reads a detail
+        // slot and refuses it could never run, and an arm that ignores a
+        // slot must refuse it so no stray argument travels with a read.
+        let source = include_str!("mp_session.rs");
+        for op in [
+            "ElectionDetail",
+            "CorporationDetail",
+            "UnionDetail",
+            "CabinetDetail",
+            "GovernorDetail",
+            "Countries",
+            "CountryOverview",
+            "CountryStates",
+            "CountryParties",
+            "CountryPoliticians",
+            "CountryLeaders",
+            "ElectionList",
+            "ClientStatusFull",
+            "CharacterSearch",
+            "NewsFeed",
+        ] {
+            let arm = command_arm(source, op);
+            for slot in DETAIL_SLOTS {
+                let reads = arm.contains(&format!("detail.{slot}.as_deref()"));
+                let refuses = arm.contains(&format!("detail.{slot}.is_some()"));
+                assert!(
+                    !(reads && refuses),
+                    "{op} must not both read and refuse the {slot} slot"
+                );
+            }
+        }
+        // The default arm carries the minimal status read, so it must refuse
+        // every slot it does not read.
+        let command_start = source
+            .find("pub async fn mp_session_fetch")
+            .expect("the fetch command must exist");
+        let default_arm = source[command_start..]
+            .split("        _ => {")
+            .nth(1)
+            .expect("the default arm must exist")
+            .split("        };")
+            .next()
+            .expect("the default arm must end");
+        for slot in DETAIL_SLOTS {
+            assert!(
+                default_arm.contains(&format!("detail.{slot}.is_some()")),
+                "the default arm must refuse the {slot} slot"
+            );
+        }
+    }
+
+    #[test]
+    fn every_pinned_read_passes_the_transport_allowlist() {
+        // The builders and the allowlist are the two halves of the transport
+        // contract: a read whose pinned path the allowlist refuses would fail
+        // on a device and pass every other test.
+        for (op, path) in [
+            (
+                MpFetchOp::ElectionDetail,
+                fetch_election_path("68a000000000000000000001").unwrap(),
+            ),
+            (
+                MpFetchOp::CorporationDetail,
+                fetch_corporation_path("42").unwrap(),
+            ),
+            (
+                MpFetchOp::UnionDetail,
+                fetch_union_path("68a000000000000000000001").unwrap(),
+            ),
+            (
+                MpFetchOp::CabinetDetail,
+                fetch_cabinet_path("us", "secretary_of_state").unwrap(),
+            ),
+            (
+                MpFetchOp::GovernorDetail,
+                fetch_governor_path("us", "CA").unwrap(),
+            ),
+            (
+                MpFetchOp::CountryOverview,
+                fetch_country_overview_path("US").unwrap(),
+            ),
+            (
+                MpFetchOp::CountryStates,
+                fetch_country_states_path("US").unwrap(),
+            ),
+            (
+                MpFetchOp::CountryParties,
+                fetch_country_parties_path("US").unwrap(),
+            ),
+            (
+                MpFetchOp::CountryPoliticians,
+                fetch_country_politicians_path("US").unwrap(),
+            ),
+            (
+                MpFetchOp::CountryLeaders,
+                fetch_country_leaders_path("US").unwrap(),
+            ),
+            (
+                MpFetchOp::ElectionList,
+                fetch_election_list_path("US").unwrap(),
+            ),
+            (
+                MpFetchOp::CharacterSearch,
+                fetch_character_search_path("Ada").unwrap(),
+            ),
+        ] {
+            assert!(
+                is_allowlisted_call("GET", &path),
+                "{op:?} path {path} must be allowlisted"
+            );
+        }
+        for (op, limit, offset) in [
+            (MpFetchOp::Notifications, Some(25), Some(0)),
+            (MpFetchOp::MailInbox, Some(50), Some(0)),
+            (MpFetchOp::MailSent, Some(50), Some(0)),
+            (MpFetchOp::NewsFeed, Some(20), Some(0)),
+        ] {
+            let path = fetch_path_and_query(op, limit, offset).unwrap();
+            assert!(
+                is_allowlisted_call("GET", &path),
+                "{op:?} path {path} must be allowlisted"
+            );
+        }
+        for op in [
+            MpFetchOp::AuthSession,
+            MpFetchOp::CharacterMe,
+            MpFetchOp::SavingsAccounts,
+            MpFetchOp::ClientNav,
+            MpFetchOp::ClientStatus,
+            MpFetchOp::ClientStatusFull,
+            MpFetchOp::TurnStatus,
+            MpFetchOp::PlayersOnline,
+            MpFetchOp::GameTime,
+            MpFetchOp::AdminMaintenance,
+            MpFetchOp::Countries,
+        ] {
+            let path = fetch_path_and_query(op, None, None).unwrap();
+            assert!(
+                is_allowlisted_call("GET", &path),
+                "{op:?} path {path} must be allowlisted"
+            );
+        }
+    }
+
     #[test]
     fn world_reads_resolve_to_pinned_paths() {
         assert_eq!(MpFetchOp::from_id("countries"), Some(MpFetchOp::Countries));
@@ -2463,6 +2702,32 @@ mod tests {
             "/api/country/DE/politicians?x=1"
         ));
         assert!(fetch_country_politicians_path("").is_err());
+
+        assert_eq!(
+            MpFetchOp::from_id("country-leaders"),
+            Some(MpFetchOp::CountryLeaders)
+        );
+        assert_eq!(
+            fetch_country_leaders_path("uk").unwrap(),
+            "/api/country/UK/legislature/leaders"
+        );
+        assert!(is_allowlisted_call(
+            "GET",
+            "/api/country/UK/legislature/leaders"
+        ));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/country/UKA/legislature/leaders"
+        ));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/country/UK/legislature/leaders?x=1"
+        ));
+        assert!(!is_allowlisted_call(
+            "GET",
+            "/api/country/UK/legislature/leader"
+        ));
+        assert!(fetch_country_leaders_path("u k").is_err());
 
         assert_eq!(
             MpFetchOp::from_id("election-list"),

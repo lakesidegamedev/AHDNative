@@ -723,6 +723,52 @@ export function parseCountryStates(bodyText: string): MpRegionView[] | null {
 }
 
 /**
+ * One office holder of a nation's legislature, from
+ * GET /api/country/[code]/legislature/leaders.
+ */
+export interface MpNationLeaderView {
+  characterId: string | null;
+  name: string | null;
+  party: string | null;
+  since: string | null;
+}
+
+export interface MpNationLeadersView {
+  primeMinister: MpNationLeaderView | null;
+  oppositionLeader: MpNationLeaderView | null;
+  speaker: MpNationLeaderView | null;
+}
+
+function projectNationLeader(value: unknown): MpNationLeaderView | null {
+  const item = asRecord(value);
+  if (!item) return null;
+  const name = asTrimmedString(item.characterName ?? null);
+  if (!name) return null;
+  return {
+    characterId: asTrimmedString(item.characterId ?? null),
+    name,
+    party: asTrimmedString(item.party ?? null),
+    since: asTrimmedString(item.since ?? null),
+  };
+}
+
+/**
+ * country-leaders: the nation's legislature leadership. A holder without a
+ * name is treated as absent, and the speaker is null while the server does
+ * not publish one.
+ */
+export function parseCountryLeaders(bodyText: string): MpNationLeadersView | null {
+  const record = asRecord(parseJsonBody(bodyText));
+  if (!record) return null;
+  if (asTrimmedString(record.error ?? null)) return null;
+  return {
+    primeMinister: projectNationLeader(record.primeMinister),
+    oppositionLeader: projectNationLeader(record.oppositionLeader),
+    speaker: projectNationLeader(record.speaker),
+  };
+}
+
+/**
  * One political party of a nation, from
  * GET /api/country/[code]/parties.
  */

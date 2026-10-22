@@ -81,6 +81,7 @@ const IDLE: MpSnapshot = {
   nationRegions: null,
   nationParties: null,
   nationPoliticians: null,
+  nationLeaders: null,
   electionList: null,
   newsFeed: null,
   characterSearch: null,
@@ -222,6 +223,9 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
    * destination opens, and a failed read reports honestly instead of
    * spinning forever. */
   const [nationsLoading, setNationsLoading] = useState(false);
+  /* Nation directory search (#510): the singleplayer world directory
+   * filters its rows the same way. */
+  const [nationQuery, setNationQuery] = useState("");
   const [electionsLoading, setElectionsLoading] = useState(false);
   const [newsLoading, setNewsLoading] = useState(false);
   /* Resource details (#510): the reference status bar opens a popover from
@@ -690,10 +694,13 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
       // drill-in; a failed sibling read keeps the nation's figures.
       const withRegions = await s.loadCountryRegions(target);
       const withParties = await s.loadCountryParties(target);
-      return s.loadCountryPoliticians(target).then((withPoliticians) => ({
-        ...withPoliticians,
+      const withPoliticians = await s.loadCountryPoliticians(target);
+      const withLeaders = await s.loadCountryLeaders(target);
+      return {
+        ...withLeaders,
         nationRegions: withParties.nationRegions ?? withRegions.nationRegions,
-      }));
+        nationPoliticians: withPoliticians.nationPoliticians,
+      };
     }).then((next) => {
       if (next?.nationOverview) {
         setNationSelected(target);
@@ -891,6 +898,13 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
       })
     : null;
   const nationList = snapshot.nations ?? [];
+  const visibleNations = (() => {
+    const needle = nationQuery.trim().toLocaleLowerCase();
+    if (needle.length === 0) return nationList;
+    return nationList.filter((nation) =>
+      (nation.name + " " + nation.id).toLocaleLowerCase().includes(needle),
+    );
+  })();
   const selectedNation = nationSelected
     ? nationList.find((nation) => nation.id === nationSelected) ?? null
     : null;
@@ -903,6 +917,7 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
   const recipientMatches = snapshot.characterSearch ?? [];
   const nationParties = selectedNation ? snapshot.nationParties : null;
   const nationPoliticians = selectedNation ? snapshot.nationPoliticians : null;
+  const nationLeaders = selectedNation ? snapshot.nationLeaders : null;
   const homeCountryId = snapshot.character?.countryId ?? snapshot.capabilities?.characterCountryId ?? null;
   const turnFounding = snapshot.turn?.preIterationActive === true;
   /* Footer resource parity: the SP footer reads campaign funds from the same
@@ -1458,6 +1473,8 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
               {selectedNation.lowerChamberName && (<><dt>Lower chamber</dt><dd>{selectedNation.lowerChamberName}</dd></>)}
               {selectedNation.upperChamberName && (<><dt>Upper chamber</dt><dd>{selectedNation.upperChamberName}</dd></>)}
               <dt>Central bank</dt><dd>{selectedNation.centralBankName ?? "Not reported"}</dd>
+              {nationLeaders?.primeMinister && (<><dt>Prime minister</dt><dd>{nationLeaders.primeMinister.name}{nationLeaders.primeMinister.party ? " · " + nationLeaders.primeMinister.party : ""}</dd></>)}
+              {nationLeaders?.oppositionLeader && (<><dt>Opposition leader</dt><dd>{nationLeaders.oppositionLeader.name}{nationLeaders.oppositionLeader.party ? " · " + nationLeaders.oppositionLeader.party : ""}</dd></>)}
               {selectedNation.executiveTitle && (<><dt>Executive</dt><dd>{selectedNation.executiveTitle}</dd></>)}
               {nationOverview && (<>
                 <dt>GDP</dt><dd>{nationOverview.gdpMillions !== null ? "$" + nationOverview.gdpMillions.toLocaleString("en-US") + "M" : "Not reported"}</dd>
@@ -1516,8 +1533,19 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
             <>
             <h2 className="ahd-h2">Nations</h2>
             {nationList.length > 0 ? (
+              <>
+              <label className="ahd-field ahd-mp-input" style={{ marginTop: "0.65rem" }}>
+                <span className="ahd-label">Search nations</span>
+                <input
+                  type="search"
+                  value={nationQuery}
+                  placeholder="Name or country code"
+                  aria-label="Search nations in the world directory"
+                  onChange={(event) => setNationQuery(event.currentTarget.value)}
+                />
+              </label>
               <ul className="ahd-mp-list" aria-label="Registered nations">
-                {nationList.map((nation) => (
+                {visibleNations.map((nation) => (
                   <li key={nation.id}>
                     <button type="button" className="ahd-profile-link" onClick={() => openNation(nation.id)}>
                       {nationTitle(nation)}{nation.id === homeCountryId ? " · Home" : ""}
@@ -1525,6 +1553,10 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
                   </li>
                 ))}
               </ul>
+              {visibleNations.length === 0 ? (
+                <p className="ahd-muted">No nation matches that search.</p>
+              ) : null}
+              </>
             ) : (
               <p className="ahd-muted">{nationsLoading ? "Loading the nation directory…" : "The server did not answer with a nation directory."}</p>
             )}
@@ -2116,7 +2148,7 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
             {statusFavorability !== null && <button type="button" className="ahd-status-btn" aria-label={`Favorability: ${statusFavorability}`} aria-expanded={openResource === "favorability"} aria-controls={openResource === "favorability" ? "ahd-mp-resource-favorability" : undefined} onClick={() => openResourceDetails("favorability")}>
               <span className="ahd-status-btn-label">FAV</span><span className="ahd-mono ahd-status-btn-value">{statusFavorability}</span>
             </button>}
-            {snapshot.inbox && <button type="button" className="ahd-status-btn" aria-label={`Notifications: ${snapshot.inbox.unreadCount} unread`} onClick={() => jumpTo("mp-inbox")}>
+            {snapshot.inbox && <button type="button" className="ahd-status-btn" aria-label={`Notifications: ${snapshot.inbox.unreadCount} unread`} aria-expanded={openResource === "inbox"} aria-controls={openResource === "inbox" ? "ahd-mp-resource-inbox" : undefined} onClick={() => setOpenResource(openResource === "inbox" ? null : "inbox")}>
               <span className="ahd-status-btn-label">Inbox</span><span className="ahd-mono ahd-status-btn-value">{snapshot.inbox.unreadCount}</span>
             </button>}
           </div>}
@@ -2126,6 +2158,49 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
             onNavigate={(next) => next === "ask" && !askContent ? onAsk?.() : jumpTo(`mp-${next}`)}
             onOpenMenu={() => { setOpenResource(null); setMenuOpen(true); }} />
         </div>
+        {/* Notification preview (#510): the reference status bar opens a
+          * bell preview with the latest notifications, the way the
+          * singleplayer footer does. Multiplayer now previews the same
+          * server inbox and links into it. */}
+        {openResource === "inbox" && snapshot.inbox && (
+          <div
+            role="dialog"
+            aria-modal="false"
+            aria-label="Notification preview"
+            id="ahd-mp-resource-inbox"
+            tabIndex={-1}
+            className="ahd-container ahd-resource-popover"
+            onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setOpenResource(null); } }}
+            style={{ outline: "none" }}
+          >
+            <div className="ahd-resource-details">
+              <div className="ahd-resource-facts">
+                {snapshot.inbox.notifications.length === 0 ? (
+                  <span>No notifications.</span>
+                ) : (
+                  <ul className="ahd-mp-list" aria-label="Latest notifications">
+                    {snapshot.inbox.notifications.slice(0, 5).map((notification) => (
+                      <li key={notification.id}>
+                        <strong>{notification.title}</strong>
+                        <span className="ahd-muted">{" "}{notification.message}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <span className="ahd-muted">{snapshot.inbox.unreadCount} unread</span>
+              </div>
+              <div className="ahd-resource-links">
+                <button type="button" className="ahd-btn ahd-btn-sm" onClick={() => { setOpenResource(null); jumpTo("mp-inbox"); }}>
+                  Open Notifications
+                </button>
+                <button type="button" className="ahd-btn ahd-btn-sm ahd-btn-ghost" onClick={() => setOpenResource(null)} aria-label="Close details">
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Resource details (#510): the reference status bar opens a popover
           * from each resource chip with that resource's figures and links
           * into the matching destination. Native shows only the figures the

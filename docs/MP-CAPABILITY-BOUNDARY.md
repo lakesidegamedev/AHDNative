@@ -106,8 +106,9 @@ dead MP controls offline and no synthesized server state anywhere:
   balance, unions, prime rate), `GET /api/country/[code]/states` answers
   that nation's regions, `GET /api/country/[code]/parties` and
   `GET /api/country/[code]/politicians` answer its parties and
-  politicians, and `GET /api/elections?country={code}&view=summary` answers
-  its races, and `GET /api/news` answers the world news feed. The Rust bridge pins the country code to a two-letter key,
+  politicians, `GET /api/country/[code]/legislature/leaders` answers its
+  legislature leadership, `GET /api/elections?country={code}&view=summary`
+  answers its races, and `GET /api/news` answers the world news feed. The Rust bridge pins the country code to a two-letter key,
   and the adapter refuses to send anything else. All of these loads sit
   outside enter/refresh: a failure keeps the last good view and never
   expires the session.

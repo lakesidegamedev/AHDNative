@@ -61,6 +61,18 @@ const countries = JSON.stringify({
     },
   ],
 });
+const countryLeaders = JSON.stringify({
+  primeMinister: {
+    characterId: "507f1f77bcf86cd799439012",
+    sequentialId: 4,
+    characterName: "Bo",
+    party: "Labour Party",
+    since: "2026-01-01T00:00:00.000Z",
+    avatarUrl: null,
+  },
+  oppositionLeader: null,
+  speaker: null,
+});
 const overview = JSON.stringify({
   parties: 42,
   politicians: 120,
@@ -170,6 +182,7 @@ describe("MpModeScreen Nations destination", () => {
         "country-states": [JSON.stringify({ states: [{ id: "CA", name: "California" }, { id: "NY", name: "New York" }] })],
         "country-parties": [countryParties],
         "country-politicians": [countryPoliticians],
+        "country-leaders": [countryLeaders],
       }),
     );
     render(<MpModeScreen host={host} onExit={() => {}} />);
@@ -218,6 +231,11 @@ describe("MpModeScreen Nations destination", () => {
     expect(within(politicianList).getByText(/Senator/)).toBeInTheDocument();
     expect(calls).toContain("fetch:country-parties");
     expect(calls).toContain("fetch:country-politicians");
+    // The nation's legislature leadership rides the same drill-in.
+    expect(within(card).getByText("Prime minister")).toBeInTheDocument();
+    expect(within(card).getByText(/Bo/)).toBeInTheDocument();
+    expect(within(card).getAllByText(/Labour Party/).length).toBeGreaterThanOrEqual(2);
+    expect(calls).toContain("fetch:country-leaders");
   });
 
   it("reports an honest empty state when the server answers no directory", async () => {

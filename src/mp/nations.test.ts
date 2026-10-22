@@ -331,6 +331,51 @@ describe("MpModeSession loadElectionList", () => {
   });
 });
 
+describe("MpModeSession loadCountryLeaders", () => {
+  const leaders = JSON.stringify({
+    primeMinister: {
+      characterId: "507f1f77bcf86cd799439012",
+      sequentialId: 4,
+      characterName: "Bo",
+      party: "Labour Party",
+      since: "2026-01-01T00:00:00.000Z",
+      avatarUrl: null,
+    },
+    oppositionLeader: null,
+    speaker: null,
+  });
+
+  it("projects the nation's legislature leadership", async () => {
+    const { host, calls } = scriptedHost(enterScripts({ "country-leaders": [leaders] }));
+    const session = new MpModeSession(host);
+    await session.enter();
+    const snapshot = await session.loadCountryLeaders("UK");
+    expect(snapshot.nationLeaders?.primeMinister).toMatchObject({
+      name: "Bo",
+      party: "Labour Party",
+    });
+    expect(snapshot.nationLeaders?.oppositionLeader).toBeNull();
+    expect(snapshot.phase).toBe("ready");
+    expect(calls.filter((call) => call === "fetch:country-leaders")).toHaveLength(1);
+  });
+
+  it("never sends an invalid country code and keeps the last good holders", async () => {
+    const { host, calls } = scriptedHost(
+      enterScripts({ "country-leaders": [leaders, { reject: "remote-error:404:Not found" }] }),
+    );
+    const session = new MpModeSession(host);
+    await session.enter();
+    const rejected = await session.loadCountryLeaders("uk");
+    expect(rejected.nationLeaders).toBeNull();
+    expect(calls.filter((call) => call === "fetch:country-leaders")).toHaveLength(0);
+
+    await session.loadCountryLeaders("UK");
+    const failed = await session.loadCountryLeaders("UK");
+    expect(failed.nationLeaders?.primeMinister?.name).toBe("Bo");
+    expect(failed.phase).toBe("ready");
+  });
+});
+
 describe("MpModeSession loadCountryParties and loadCountryPoliticians", () => {
   const parties = JSON.stringify({
     parties: [

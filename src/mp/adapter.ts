@@ -6,6 +6,7 @@ import {
   parseCharacterSearch,
   parseClientStatus,
   parseCountries,
+  parseCountryLeaders,
   parseCountryOverview,
   parseCountryParties,
   parseCountryPoliticians,
@@ -54,6 +55,7 @@ import {
   type MpRegionView,
   type MpNationPartyView,
   type MpNationPoliticianView,
+  type MpNationLeadersView,
   type MpNewsPostView,
   type MpCharacterSearchResult,
   type MpUnionDetailView,
@@ -145,6 +147,11 @@ export interface MpSnapshot {
    */
   nationPoliticians: MpNationPoliticianView[] | null;
   /**
+   * The selected nation's legislature leadership, from
+   * /api/country/[code]/legislature/leaders. Loaded on demand.
+   */
+  nationLeaders: MpNationLeadersView | null;
+  /**
    * A nation's election list, from
    * /api/elections?country={code}&view=summary. Loaded on demand.
    */
@@ -191,6 +198,7 @@ const INITIAL_SNAPSHOT: MpSnapshot = {
   nationRegions: null,
   nationParties: null,
   nationPoliticians: null,
+  nationLeaders: null,
   electionList: null,
   newsFeed: null,
   characterSearch: null,
@@ -213,9 +221,9 @@ export const MP_MAIL_LIMIT = 50;
 
 function emptyAuthed(): Pick<
   MpSnapshot,
-  "character" | "savings" | "turn" | "capabilities" | "electionDetail" | "corporationDetail" | "unionDetail" | "cabinetDetail" | "governorDetail" | "inbox" | "mailInbox" | "mailSent" | "presence" | "status" | "nations" | "nationOverview" | "nationRegions" | "nationParties" | "nationPoliticians" | "electionList" | "newsFeed" | "characterSearch"
+  "character" | "savings" | "turn" | "capabilities" | "electionDetail" | "corporationDetail" | "unionDetail" | "cabinetDetail" | "governorDetail" | "inbox" | "mailInbox" | "mailSent" | "presence" | "status" | "nations" | "nationOverview" | "nationRegions" | "nationParties" | "nationPoliticians" | "nationLeaders" | "electionList" | "newsFeed" | "characterSearch"
 > {
-  return { character: null, savings: null, turn: null, capabilities: null, electionDetail: null, corporationDetail: null, unionDetail: null, cabinetDetail: null, governorDetail: null, inbox: null, mailInbox: null, mailSent: null, presence: null, status: null, nations: null, nationOverview: null, nationRegions: null, nationParties: null, nationPoliticians: null, electionList: null, newsFeed: null, characterSearch: null };
+  return { character: null, savings: null, turn: null, capabilities: null, electionDetail: null, corporationDetail: null, unionDetail: null, cabinetDetail: null, governorDetail: null, inbox: null, mailInbox: null, mailSent: null, presence: null, status: null, nations: null, nationOverview: null, nationRegions: null, nationParties: null, nationPoliticians: null, nationLeaders: null, electionList: null, newsFeed: null, characterSearch: null };
 }
 
 export class MpModeSession {
@@ -606,6 +614,7 @@ export class MpModeSession {
         undefined,
         undefined,
         undefined,
+        undefined,
         code,
       );
       if (result.kind !== "ok") return this.get();
@@ -637,12 +646,45 @@ export class MpModeSession {
         undefined,
         undefined,
         undefined,
+        undefined,
         code,
       );
       if (result.kind !== "ok") return this.get();
       const nationRegions = parseCountryStates(result.bodyText);
       if (!nationRegions) return this.get();
       return this.set({ nationRegions });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
+   * Read the legislature leadership of one nation (#510 world
+   * destinations). GET /api/country/[code]/legislature/leaders is public;
+   * the code is checked here and again by the Rust bridge. A failed read
+   * keeps the previous holders and never fails the session. Never throws.
+   */
+  async loadCountryLeaders(code: unknown): Promise<MpSnapshot> {
+    if (!isCountryCode(code)) return this.get();
+    try {
+      const result = await mpFetch(
+        this.host,
+        "country-leaders",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        code,
+      );
+      if (result.kind !== "ok") return this.get();
+      const nationLeaders = parseCountryLeaders(result.bodyText);
+      if (!nationLeaders) return this.get();
+      return this.set({ nationLeaders });
     } catch {
       return this.get();
     }
@@ -660,6 +702,7 @@ export class MpModeSession {
       const result = await mpFetch(
         this.host,
         "country-parties",
+        undefined,
         undefined,
         undefined,
         undefined,
@@ -691,6 +734,7 @@ export class MpModeSession {
       const result = await mpFetch(
         this.host,
         "country-politicians",
+        undefined,
         undefined,
         undefined,
         undefined,
@@ -794,6 +838,7 @@ export class MpModeSession {
       const result = await mpFetch(
         this.host,
         "election-list",
+        undefined,
         undefined,
         undefined,
         undefined,
