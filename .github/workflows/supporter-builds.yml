@@ -3,6 +3,8 @@ name: supporter-builds
 # releases or attach release assets from this workflow.
 on:
   workflow_dispatch:
+  push: # TEMP-TRIGGER: remove before merge
+    branches: [ci/supporter-builds]
 concurrency:
   group: supporter-builds-${{ github.ref }}
   cancel-in-progress: false
