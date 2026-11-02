@@ -1,0 +1,223 @@
+name: supporter-builds
+# Manual only. Builds go to short-lived private Actions artifacts. Never publish
+# releases or attach release assets from this workflow.
+on:
+  workflow_dispatch:
+concurrency:
+  group: supporter-builds-${{ github.ref }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+env:
+  RUST_TOOLCHAIN: "1.96.0"
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # The shared rules hash check needs LF endings, not Windows autocrlf.
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/shared-rules.mjs --verify
+      - run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Build unsigned NSIS installer
+        run: npm run tauri -- build --ci --bundles nsis
+      - name: Collect installer
+        run: |
+          mkdir -p out
+          cp src-tauri/target/release/bundle/nsis/*.exe out/
+          ls -l out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ahdnative-windows
+          path: out/*.exe
+          retention-days: 1
+          if-no-files-found: error
+
+  mac:
+    runs-on: macos-14
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            triple: aarch64-apple-darwin
+          - arch: x64
+            triple: x86_64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/shared-rules.mjs --verify
+      - run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --target ${{ matrix.triple }}
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.triple }}
+      - name: Build ad-hoc signed dmg
+        env:
+          # Ad-hoc identity: no Apple Developer ID exists for this repo.
+          APPLE_SIGNING_IDENTITY: "-"
+        run: npm run tauri -- build --ci --target ${{ matrix.triple }} --bundles dmg
+      - name: Collect dmg
+        run: |
+          mkdir -p out
+          cp src-tauri/target/${{ matrix.triple }}/release/bundle/dmg/*.dmg out/
+          ls -l out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ahdnative-mac-${{ matrix.arch }}
+          path: out/*.dmg
+          retention-days: 1
+          if-no-files-found: error
+
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Install Android SDK packages and NDK
+        run: |
+          # The hosted image ships the SDK; setup-android@v3 fails on its legacy 'tools' package.
+          sdkm="$(ls -d "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)"
+          yes | "$sdkm" --licenses > /dev/null || true
+          "$sdkm" "platforms;android-35" "build-tools;35.0.0" "ndk;28.0.13004108"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/28.0.13004108" >> "$GITHUB_ENV"
+      - run: npm ci
+      - run: node scripts/shared-rules.mjs --verify
+      - run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --target aarch64-linux-android --target armv7-linux-androideabi
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Prepare signing keystore
+        id: keystore
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -eu
+          ks="$RUNNER_TEMP/supporter.keystore"
+          if [ -n "$ANDROID_KEYSTORE_B64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            printf '%s' "$ANDROID_KEYSTORE_B64" | base64 -d > "$ks"
+            store_pw="$ANDROID_KEYSTORE_PASSWORD"; alias="$ANDROID_KEY_ALIAS"; key_pw="$ANDROID_KEY_PASSWORD"
+            mode=release
+          else
+            store_pw="android"; alias="androiddebugkey"; key_pw="android"
+            keytool -genkeypair -keystore "$ks" -storepass "$store_pw" -keypass "$key_pw" \
+              -alias "$alias" -keyalg RSA -keysize 2048 -validity 3650 \
+              -dname "CN=AHDNative throwaway, O=Lakeside Games"
+            mode=throwaway
+          fi
+          echo "::add-mask::$store_pw"
+          echo "::add-mask::$key_pw"
+          {
+            echo "AHD_KS_PATH=$ks"
+            echo "AHD_KS_PASSWORD=$store_pw"
+            echo "AHD_KS_ALIAS=$alias"
+            echo "AHD_KEY_PASSWORD=$key_pw"
+          } >> "$GITHUB_ENV"
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          if [ "$mode" = release ]; then
+            echo "Android signing: repository keystore (real release key)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Android signing: THROWAWAY keystore generated in this job (repository secrets absent). This APK cannot update a build signed with any other key." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Generate Android project
+        run: npm run tauri -- android init --ci --skip-targets-install
+      - name: Wire release signing into generated Gradle project
+        run: |
+          cat >> src-tauri/gen/android/app/build.gradle.kts <<'KTS'
+
+          android {
+              signingConfigs {
+                  create("supporter") {
+                      storeFile = file(System.getenv("AHD_KS_PATH"))
+                      storePassword = System.getenv("AHD_KS_PASSWORD")
+                      keyAlias = System.getenv("AHD_KS_ALIAS")
+                      keyPassword = System.getenv("AHD_KEY_PASSWORD")
+                  }
+              }
+              buildTypes {
+                  getByName("release") {
+                      signingConfig = signingConfigs.getByName("supporter")
+                  }
+              }
+          }
+          KTS
+      - name: Build universal release APK
+        env:
+          CARGO_BUILD_JOBS: "4"
+          # Keep libraries usable on devices with 16 KB memory pages.
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS: "-C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-Wl,-z,common-page-size=16384"
+        run: npm run tauri -- android build --ci --apk --target aarch64 --target armv7
+      - name: Collect APK
+        run: |
+          mkdir -p out
+          find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' -print
+          cp src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk out/ahdnative-universal-release.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs out/ahdnative-universal-release.apk | grep -v 'SHA' || true
+          ls -l out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ahdnative-android
+          path: out/*.apk
+          retention-days: 1
+          if-no-files-found: error
+
+  manifest:
+    needs: [windows, mac, android]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dl
+      - name: Write manifest
+        run: |
+          node --input-type=module -e '
+            import fs from "node:fs";
+            import path from "node:path";
+            const conf = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
+            const platforms = {};
+            for (const dir of fs.readdirSync("dl").sort()) {
+              platforms[dir] = fs.readdirSync(path.join("dl", dir)).sort().map((name) => ({
+                file: name,
+                bytes: fs.statSync(path.join("dl", dir, name)).size,
+              }));
+            }
+            fs.mkdirSync("manifest", { recursive: true });
+            fs.writeFileSync("manifest/manifest.json", JSON.stringify({ version: conf.version, sha: process.env.GITHUB_SHA, platforms }, null, 2) + "\n");
+          '
+          cat manifest/manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ahdnative-manifest
+          path: manifest/manifest.json
+          retention-days: 1
+          if-no-files-found: error
