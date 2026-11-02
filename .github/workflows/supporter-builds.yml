@@ -20,6 +20,8 @@ jobs:
       run:
         shell: bash
     steps:
+      # The shared rules hash check needs LF endings, not Windows autocrlf.
+      - run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
@@ -99,10 +101,12 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - uses: android-actions/setup-android@v3
-      - name: Install NDK
+      - name: Install Android SDK packages and NDK
         run: |
-          sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;28.0.13004108"
+          # The hosted image ships the SDK; setup-android@v3 fails on its legacy 'tools' package.
+          sdkm="$(ls -d "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)"
+          yes | "$sdkm" --licenses > /dev/null || true
+          "$sdkm" "platforms;android-35" "build-tools;35.0.0" "ndk;28.0.13004108"
           echo "NDK_HOME=$ANDROID_HOME/ndk/28.0.13004108" >> "$GITHUB_ENV"
       - run: npm ci
       - run: node scripts/shared-rules.mjs --verify
