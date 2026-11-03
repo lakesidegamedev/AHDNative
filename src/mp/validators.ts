@@ -1008,6 +1008,75 @@ export function parseNewsFeed(bodyText: string): MpNewsPostView[] | null {
   return posts;
 }
 
+export interface MpImfBailoutView {
+  countryCode: string;
+  principalOutstanding: number | null;
+  annualRate: number | null;
+  amortizationTurnsRemaining: number | null;
+}
+
+export interface MpImfOverviewView {
+  /** Null when the world has no IMF corporation. */
+  liquidCapital: number | null;
+  liquidCurrencyCode: string | null;
+  boardMembers: { characterId: string; name: string }[];
+  totalReceivedAnchor: number | null;
+  bailouts: MpImfBailoutView[];
+  /** Country codes whose bailout terms are inside a board override window. */
+  pendingOverrideCountries: string[];
+}
+
+/**
+ * imf-overview: the IMF corporation, board, active sovereign bailouts and
+ * pending board overrides. The route answers imfCorp null with empty lists
+ * when the world has no IMF. A malformed entry invalidates the whole read so
+ * a half-parsed facility is never shown as the real one.
+ */
+export function parseImfOverview(bodyText: string): MpImfOverviewView | null {
+  const record = asRecord(parseJsonBody(bodyText));
+  if (!record) return null;
+  if (!Array.isArray(record.boardMembers) || !Array.isArray(record.activeSovereignBailouts) || !Array.isArray(record.pendingBoardOverrides)) {
+    return null;
+  }
+  const corp = record.imfCorp === null ? null : asRecord(record.imfCorp);
+  if (record.imfCorp !== null && !corp) return null;
+  const boardMembers: MpImfOverviewView["boardMembers"] = [];
+  for (const entry of record.boardMembers) {
+    const item = asRecord(entry);
+    const characterId = item ? asTrimmedString(item.characterId) : null;
+    const name = item ? asTrimmedString(item.name) : null;
+    if (!characterId || !name) return null;
+    boardMembers.push({ characterId, name });
+  }
+  const bailouts: MpImfBailoutView[] = [];
+  for (const entry of record.activeSovereignBailouts) {
+    const item = asRecord(entry);
+    const countryCode = item ? asTrimmedString(item.countryCode) : null;
+    if (!item || !countryCode) return null;
+    bailouts.push({
+      countryCode,
+      principalOutstanding: asNumber(item.principalOutstanding),
+      annualRate: asNumber(item.annualRate),
+      amortizationTurnsRemaining: asNumber(item.amortizationTurnsRemaining),
+    });
+  }
+  const pendingOverrideCountries: string[] = [];
+  for (const entry of record.pendingBoardOverrides) {
+    const item = asRecord(entry);
+    const countryCode = item ? asTrimmedString(item.countryCode) : null;
+    if (!countryCode) return null;
+    pendingOverrideCountries.push(countryCode);
+  }
+  return {
+    liquidCapital: corp ? asNumber(corp.liquidCapital) : null,
+    liquidCurrencyCode: corp ? asTrimmedString(corp.liquidCurrencyCode ?? null) : null,
+    boardMembers,
+    totalReceivedAnchor: asNumber(record.totalReceivedAnchor),
+    bailouts,
+    pendingOverrideCountries,
+  };
+}
+
 /**
  * Election detail reference accepted by GET /api/elections?id= (AHDGame
  * resolveElection accepts a 24-hex ObjectId or a seatId like US-senate-PA-1;

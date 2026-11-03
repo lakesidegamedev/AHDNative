@@ -23,6 +23,7 @@ import {
   parseElectionDetail,
   parseElectionList,
   parseNewsFeed,
+  parseImfOverview,
   parseExecuteResult,
   parseGovernorDetail,
   parseInbox,
@@ -1812,5 +1813,42 @@ describe("formatTurnCountdown (#359 presence slice)", () => {
     } finally {
       vi.restoreAllMocks();
     }
+  });
+});
+
+describe("parseImfOverview", () => {
+  const full = {
+    imfCorp: { liquidCapital: 5, liquidCurrencyCode: "USD" },
+    boardMembers: [{ characterId: "c1", name: "Ada" }],
+    totalReceivedAnchor: 9,
+    activeSovereignBailouts: [{ countryCode: "GB", principalOutstanding: 1, annualRate: 4.5, amortizationTurnsRemaining: 3 }],
+    pendingBoardOverrides: [{ countryCode: "GB" }],
+  };
+
+  it("projects the facility, board, bailouts and open overrides", () => {
+    expect(parseImfOverview(JSON.stringify(full))).toEqual({
+      liquidCapital: 5,
+      liquidCurrencyCode: "USD",
+      boardMembers: [{ characterId: "c1", name: "Ada" }],
+      totalReceivedAnchor: 9,
+      bailouts: [{ countryCode: "GB", principalOutstanding: 1, annualRate: 4.5, amortizationTurnsRemaining: 3 }],
+      pendingOverrideCountries: ["GB"],
+    });
+  });
+
+  it("accepts a world with no IMF corporation", () => {
+    const view = parseImfOverview(
+      JSON.stringify({ imfCorp: null, boardMembers: [], totalReceivedAnchor: 0, activeSovereignBailouts: [], pendingBoardOverrides: [] }),
+    );
+    expect(view?.liquidCapital).toBeNull();
+    expect(view?.boardMembers).toEqual([]);
+  });
+
+  it("refuses a malformed entry or shape", () => {
+    expect(parseImfOverview("not json")).toBeNull();
+    expect(parseImfOverview(JSON.stringify({ ...full, boardMembers: [{ name: "Ada" }] }))).toBeNull();
+    expect(parseImfOverview(JSON.stringify({ ...full, activeSovereignBailouts: [{}] }))).toBeNull();
+    expect(parseImfOverview(JSON.stringify({ ...full, pendingBoardOverrides: "x" }))).toBeNull();
+    expect(parseImfOverview(JSON.stringify({ ...full, imfCorp: 3 }))).toBeNull();
   });
 });

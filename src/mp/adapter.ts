@@ -16,6 +16,7 @@ import {
   parseElectionDetail,
   parseElectionList,
   parseNewsFeed,
+  parseImfOverview,
   parseExecuteResult,
   parseGovernorDetail,
   parseInbox,
@@ -58,6 +59,7 @@ import {
   type MpNationPoliticianView,
   type MpNationLeadersView,
   type MpPoliticianView,
+  type MpImfOverviewView,
   type MpNewsPostView,
   type MpCharacterSearchResult,
   type MpUnionDetailView,
@@ -159,6 +161,11 @@ export interface MpSnapshot {
    */
   politician: MpPoliticianView | null;
   /**
+   * The IMF overview, from /api/imf/overview. Loaded on demand from the
+   * World > IMF destination.
+   */
+  imf: MpImfOverviewView | null;
+  /**
    * A nation's election list, from
    * /api/elections?country={code}&view=summary. Loaded on demand.
    */
@@ -207,6 +214,7 @@ const INITIAL_SNAPSHOT: MpSnapshot = {
   nationPoliticians: null,
   nationLeaders: null,
   politician: null,
+  imf: null,
   electionList: null,
   newsFeed: null,
   characterSearch: null,
@@ -229,9 +237,9 @@ export const MP_MAIL_LIMIT = 50;
 
 function emptyAuthed(): Pick<
   MpSnapshot,
-  "character" | "savings" | "turn" | "capabilities" | "electionDetail" | "corporationDetail" | "unionDetail" | "cabinetDetail" | "governorDetail" | "inbox" | "mailInbox" | "mailSent" | "presence" | "status" | "nations" | "nationOverview" | "nationRegions" | "nationParties" | "nationPoliticians" | "nationLeaders" | "politician" | "electionList" | "newsFeed" | "characterSearch"
+  "character" | "savings" | "turn" | "capabilities" | "electionDetail" | "corporationDetail" | "unionDetail" | "cabinetDetail" | "governorDetail" | "inbox" | "mailInbox" | "mailSent" | "presence" | "status" | "nations" | "imf" | "nationOverview" | "nationRegions" | "nationParties" | "nationPoliticians" | "nationLeaders" | "politician" | "electionList" | "newsFeed" | "characterSearch"
 > {
-  return { character: null, savings: null, turn: null, capabilities: null, electionDetail: null, corporationDetail: null, unionDetail: null, cabinetDetail: null, governorDetail: null, inbox: null, mailInbox: null, mailSent: null, presence: null, status: null, nations: null, nationOverview: null, nationRegions: null, nationParties: null, nationPoliticians: null, nationLeaders: null, politician: null, electionList: null, newsFeed: null, characterSearch: null };
+  return { character: null, savings: null, turn: null, capabilities: null, electionDetail: null, corporationDetail: null, unionDetail: null, cabinetDetail: null, governorDetail: null, inbox: null, mailInbox: null, mailSent: null, presence: null, status: null, nations: null, imf: null, nationOverview: null, nationRegions: null, nationParties: null, nationPoliticians: null, nationLeaders: null, politician: null, electionList: null, newsFeed: null, characterSearch: null };
 }
 
 export class MpModeSession {
@@ -845,6 +853,24 @@ export class MpModeSession {
       const characterSearch = parseCharacterSearch(result.bodyText);
       if (!characterSearch) return this.get();
       return this.set({ characterSearch });
+    } catch {
+      return this.get();
+    }
+  }
+
+  /**
+   * Read the IMF overview (#510 world destinations). GET /api/imf/overview
+   * needs a signed-in session and takes no parameters. Every failure keeps
+   * the last good overview and never fails the session. Never throws.
+   */
+  async loadImfOverview(): Promise<MpSnapshot> {
+    try {
+      const result = await mpFetch(this.host, "imf-overview");
+      if (result.kind === "remote" && result.http === 401) return this.applyMailReadFailure(result);
+      if (result.kind !== "ok") return this.get();
+      const imf = parseImfOverview(result.bodyText);
+      if (!imf) return this.get();
+      return this.set({ imf });
     } catch {
       return this.get();
     }

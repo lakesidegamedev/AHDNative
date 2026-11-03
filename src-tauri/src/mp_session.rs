@@ -205,6 +205,10 @@ pub enum MpFetchOp {
     /// auth, 400 on an invalid id, 404 when the politician is gone). The id
     /// is a 24-hex character or NPP id.
     PoliticianDetail,
+    /// The IMF overview; GET /api/imf/overview (any signed-in user, no
+    /// parameters). Corp, board members, sovereign bailouts and pending
+    /// board overrides.
+    ImfOverview,
     /// Character search by name; GET /api/characters/search?q={query}&
     /// limit=10 (public, no auth). The query is a plain name fragment,
     /// validated and percent-encoded by the bridge.
@@ -242,6 +246,7 @@ impl MpFetchOp {
             "news-feed" => Some(Self::NewsFeed),
             "character-search" => Some(Self::CharacterSearch),
             "politician-detail" => Some(Self::PoliticianDetail),
+            "imf-overview" => Some(Self::ImfOverview),
             _ => None,
         }
     }
@@ -276,6 +281,7 @@ impl MpFetchOp {
             Self::NewsFeed => "/api/news",
             Self::CharacterSearch => "/api/characters/search",
             Self::PoliticianDetail => "/api/politician",
+            Self::ImfOverview => "/api/imf/overview",
         }
     }
 }
@@ -1436,6 +1442,7 @@ fn is_allowlisted_call(method: &str, path_and_query: &str) -> bool {
         | ("GET", "/api/game/turn/status")
         | ("GET", "/api/players/online")
         | ("GET", "/api/admin/maintenance")
+        | ("GET", "/api/imf/overview")
         | ("GET", "/api/game-time") => query.is_none(),
         // The status read only ever runs with a pinned layout.
         ("GET", "/api/client-status") => {
@@ -2701,6 +2708,7 @@ mod tests {
             MpFetchOp::GameTime,
             MpFetchOp::AdminMaintenance,
             MpFetchOp::Countries,
+            MpFetchOp::ImfOverview,
         ] {
             let path = fetch_path_and_query(op, None, None).unwrap();
             assert!(
@@ -2713,6 +2721,17 @@ mod tests {
     #[test]
     fn world_reads_resolve_to_pinned_paths() {
         assert_eq!(MpFetchOp::from_id("countries"), Some(MpFetchOp::Countries));
+        assert_eq!(
+            MpFetchOp::from_id("imf-overview"),
+            Some(MpFetchOp::ImfOverview)
+        );
+        assert_eq!(
+            fetch_path_and_query(MpFetchOp::ImfOverview, None, None).unwrap(),
+            "/api/imf/overview"
+        );
+        assert!(fetch_path_and_query(MpFetchOp::ImfOverview, Some(1), None).is_err());
+        assert!(!is_allowlisted_call("GET", "/api/imf/overview?x=1"));
+        assert!(!is_allowlisted_call("GET", "/api/imf/board/override"));
         assert_eq!(MpFetchOp::Countries.path(), "/api/countries");
         assert_eq!(
             fetch_path_and_query(MpFetchOp::Countries, None, None).unwrap(),
