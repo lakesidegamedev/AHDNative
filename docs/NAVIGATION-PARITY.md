@@ -1089,3 +1089,28 @@ Delivered:
 Focused evidence: `cargo test --manifest-path src-tauri/Cargo.toml --lib`
 (93 tests) with `cargo fmt --check` and
 `cargo clippy --all-targets -- -D warnings` clean.
+
+## 34. MP IMF destination (#510)
+
+The reference has an IMF page (facility, board and active sovereign
+bailouts); multiplayer had no way to see any of it.
+
+Delivered:
+
+- The MP drawer gained a World > IMF destination. It reads the signed-in
+  overview (`GET /api/imf/overview`, no parameters) and shows the facility's
+  liquid capital, what has been paid in to date, the open board overrides,
+  the board members and each active bailout (country, principal, yearly rate,
+  turns left). A world with no IMF says so.
+- The destination is read-only: the audited read carries no board vote or
+  override action, so none is offered and none is implied.
+- A failed read reports honestly and keeps the session ready. An expired
+  session returns to the reconnect state like every other signed-in read.
+- The new read takes no detail slot: the Rust bridge refuses any slot and
+  any query on it, and the allowlist pins the exact path.
+
+Focused evidence: `src/ui/MpImf510.test.tsx` (3 rendered tests: the overview,
+a world with no IMF, and the failed read), `src/mp/validators.test.ts`
+(`parseImfOverview`), `src/mp/adapterSlots.test.ts` and the Rust assertions in
+`mp_session::tests`. No physical-iPhone evidence is claimed; #363/#436 remain
+open.

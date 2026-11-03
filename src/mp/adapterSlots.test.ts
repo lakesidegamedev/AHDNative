@@ -52,6 +52,7 @@ const EXPECTED: Record<string, Slot[]> = {
   "election-list": ["countryCode"],
   "character-search": ["searchQuery"],
   "politician-detail": ["politicianId"],
+  "imf-overview": [],
   "news-feed": ["limit", "offset"],
   "election-detail": ["electionId"],
   "corporation-detail": ["corporationId"],

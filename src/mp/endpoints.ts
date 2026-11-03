@@ -87,6 +87,16 @@
  *   total, page}. The list items are the same resolved summary the
  *   single-election read returns, so Native projects them through one
  *   shared projection.
+ * - imf-overview      GET /api/imf/overview
+ *   any signed-in user, no parameters (AHDGame
+ *   src/app/api/imf/overview/route.ts): 200 {currentTurn, imfCorp:{id,
+ *   sequentialId,liquidCapital,liquidCurrencyCode}|null, boardMembers:[{
+ *   characterId,name,sequentialId}], totalReceivedAnchor,
+ *   activeSovereignBailouts:[{countryCode,principalOutstanding,annualRate,
+ *   amortizationTurnsRemaining,incomeCaptureFraction,cumulativePaidAnchor,
+ *   crisisChoice,recoveryStartedAt}], pendingBoardOverrides:[{countryCode,
+ *   windowEndAtRealtimeMs,windowEndAtTurn,crisisChoice,facilityTerms}]}.
+ *   With no IMF corporation the route answers imfCorp null and empty lists.
  * - news-feed         GET /api/news?limit={limit}&offset={offset}
  *   public, no auth. The world news feed (AHDGame
  *   src/app/api/news/route.ts): 200 {posts:[{_id,title,content,authorName,
@@ -412,7 +422,8 @@ export type MpFetchOpId =
   | "election-list"
   | "news-feed"
   | "character-search"
-  | "politician-detail";
+  | "politician-detail"
+  | "imf-overview";
 
 export type MpMutateOpId =
   | "execute-action"

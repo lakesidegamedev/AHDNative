@@ -83,6 +83,7 @@ const IDLE: MpSnapshot = {
   nationPoliticians: null,
   nationLeaders: null,
   politician: null,
+  imf: null,
   electionList: null,
   newsFeed: null,
   characterSearch: null,
@@ -229,6 +230,7 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
   const [nationQuery, setNationQuery] = useState("");
   const [electionsLoading, setElectionsLoading] = useState(false);
   const [newsLoading, setNewsLoading] = useState(false);
+  const [imfLoading, setImfLoading] = useState(false);
   /* Resource details (#510): the reference status bar opens a popover from
    * each resource chip with that resource's figures and links into the
    * matching destination. Native mirrors that shape with the figures the
@@ -482,6 +484,21 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
       setSnapshot(next);
     });
   }, [activeSection, snapshot.newsFeed]);
+
+  /* IMF overview (#510 world destinations). The read needs the signed-in
+   * session and loads when the destination opens; it never blocks the
+   * session and a failed read keeps the last good overview. */
+  useEffect(() => {
+    if (activeSection !== "mp-imf") return;
+    const session = sessionRef.current!;
+    const current = session.get();
+    if (current.phase !== "ready" || current.imf) return;
+    setImfLoading(true);
+    void session.loadImfOverview().then((next) => {
+      setImfLoading(false);
+      setSnapshot(next);
+    });
+  }, [activeSection, snapshot.imf]);
 
   /* Election list (#510 world destinations). The nation's races come from
    * the public election list read; it loads when the destination opens and
@@ -925,6 +942,14 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
   const profileHome = profileHomeName(snapshot.character, snapshot.capabilities);
   const electionList = snapshot.electionList;
   const newsFeed = snapshot.newsFeed;
+  const imf = snapshot.imf;
+  const imfMoney = (value: number | null, code: string | null) => {
+    if (value === null) return "Not reported";
+    const abs = Math.abs(value);
+    const unit = abs >= 1e12 ? [1e12, "T"] : abs >= 1e9 ? [1e9, "B"] : abs >= 1e6 ? [1e6, "M"] : null;
+    const body = unit ? (value / (unit[0] as number)).toFixed(1) + unit[1] : value.toFixed(0);
+    return (code ? code + " " : "") + body;
+  };
   const recipientMatches = snapshot.characterSearch ?? [];
   const nationParties = selectedNation ? snapshot.nationParties : null;
   const nationPoliticians = selectedNation ? snapshot.nationPoliticians : null;
@@ -994,7 +1019,7 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
         <header className="ahd-mp-row ahd-mp-heading" aria-label="Multiplayer header">
           <div style={{ minWidth: 0 }}>
             <p className="ahd-eyebrow">Multiplayer</p>
-            {activeSection !== "mp-profile" && activeSection !== "mp-settings" && activeSection !== "mp-actions" && activeSection !== "mp-ask" && <h1 className="ahd-h1" id="mp-top" tabIndex={-1}>{({ "mp-profile": "Profile", "mp-actions": "Actions", "mp-wallet": "Wallet", "mp-inbox": "Notifications", "mp-mail": "Mail", "mp-settings": "Settings", "mp-nations": "Nations", "mp-elections": "Elections", "mp-news": "News", "mp-politician": "Politician" } as Record<string, string>)[activeSection] ?? "Details"}</h1>}
+            {activeSection !== "mp-profile" && activeSection !== "mp-settings" && activeSection !== "mp-actions" && activeSection !== "mp-ask" && <h1 className="ahd-h1" id="mp-top" tabIndex={-1}>{({ "mp-profile": "Profile", "mp-actions": "Actions", "mp-wallet": "Wallet", "mp-inbox": "Notifications", "mp-mail": "Mail", "mp-settings": "Settings", "mp-nations": "Nations", "mp-elections": "Elections", "mp-news": "News", "mp-imf": "IMF", "mp-politician": "Politician" } as Record<string, string>)[activeSection] ?? "Details"}</h1>}
             {snapshot.username && <p className="ahd-muted" style={{ margin: 0 }}>Playing as {snapshot.username}</p>}
           </div>
         </header>
@@ -1431,6 +1456,55 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
           )}
         </section>
         <div hidden={activeSection !== "mp-news"} className="ahd-mp-row ahd-mp-back">
+          <button className="ahd-btn ahd-btn-sm ahd-btn-ghost" onClick={() => jumpTo("mp-top")}>
+            Back to Standing
+          </button>
+        </div>
+
+        {/* IMF (#510 world destinations): the facility, its board and the
+          * active sovereign bailouts from the signed-in overview read. The
+          * audited read carries no board vote or override action, so none
+          * is offered here. */}
+        <section id="mp-imf" className="ahd-card ahd-card-pad" aria-label="IMF" tabIndex={-1} hidden={activeSection !== "mp-imf"}>
+          <h2 className="ahd-h2">IMF</h2>
+          {imf ? (
+            imf.liquidCapital === null && imf.boardMembers.length === 0 && imf.bailouts.length === 0 ? (
+              <p className="ahd-muted">This world has no IMF.</p>
+            ) : (
+              <>
+                <dl className="ahd-mp-facts">
+                  <dt>Liquid capital</dt><dd>{imfMoney(imf.liquidCapital, imf.liquidCurrencyCode)}</dd>
+                  <dt>Paid in to date</dt><dd>{imfMoney(imf.totalReceivedAnchor, "USD")}</dd>
+                  <dt>Board overrides open</dt><dd>{imf.pendingOverrideCountries.length > 0 ? imf.pendingOverrideCountries.join(", ") : "None"}</dd>
+                </dl>
+                <h3 className="ahd-h3">Board</h3>
+                {imf.boardMembers.length > 0 ? (
+                  <ul className="ahd-mp-list" aria-label="IMF board">
+                    {imf.boardMembers.map((member) => (<li key={member.characterId}>{member.name}</li>))}
+                  </ul>
+                ) : (
+                  <p className="ahd-muted">No board members.</p>
+                )}
+                <h3 className="ahd-h3">Active bailouts</h3>
+                {imf.bailouts.length > 0 ? (
+                  <ul className="ahd-mp-list" aria-label="Active IMF bailouts">
+                    {imf.bailouts.map((bailout) => (
+                      <li key={bailout.countryCode}>
+                        <strong>{bailout.countryCode}</strong>
+                        <span className="ahd-muted">{" "}principal {imfMoney(bailout.principalOutstanding, null)}{bailout.annualRate !== null ? ", " + bailout.annualRate + "% a year" : ""}{bailout.amortizationTurnsRemaining !== null ? ", " + bailout.amortizationTurnsRemaining + " turns left" : ""}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="ahd-muted">No active bailouts.</p>
+                )}
+              </>
+            )
+          ) : (
+            <p className="ahd-muted">{imfLoading ? "Loading the IMF overview\u2026" : "The server did not answer with an IMF overview."}</p>
+          )}
+        </section>
+        <div hidden={activeSection !== "mp-imf"} className="ahd-mp-row ahd-mp-back">
           <button className="ahd-btn ahd-btn-sm ahd-btn-ghost" onClick={() => jumpTo("mp-top")}>
             Back to Standing
           </button>
@@ -2102,6 +2176,9 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
             </button>
             <button className="ahd-drawer-item" aria-current={activeSection === "mp-news" ? "page" : undefined} data-active={activeSection === "mp-news" ? "true" : undefined} onClick={() => navigateFromMenu("mp-news")}>
               News
+            </button>
+            <button className="ahd-drawer-item" aria-current={activeSection === "mp-imf" ? "page" : undefined} data-active={activeSection === "mp-imf" ? "true" : undefined} onClick={() => navigateFromMenu("mp-imf")}>
+              IMF
             </button>
           </nav>
 
