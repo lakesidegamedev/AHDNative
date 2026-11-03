@@ -331,6 +331,45 @@ describe("MpModeSession loadElectionList", () => {
   });
 });
 
+describe("MpModeSession loadPoliticianDetail", () => {
+  const profile = JSON.stringify({
+    type: "character",
+    id: "68a000000000000000000001",
+    name: "Bo",
+    partyName: "Labour Party",
+    homeStateName: "California",
+    currentOffice: "Senator",
+    politicalInfluence: 61,
+    favorability: 55,
+  });
+
+  it("projects the public profile", async () => {
+    const { host, calls } = scriptedHost(enterScripts({ "politician-detail": [profile] }));
+    const session = new MpModeSession(host);
+    await session.enter();
+    const snapshot = await session.loadPoliticianDetail("68a000000000000000000001");
+    expect(snapshot.politician).toMatchObject({
+      name: "Bo",
+      partyName: "Labour Party",
+      currentOffice: "Senator",
+      politicalInfluence: 61,
+    });
+    expect(snapshot.phase).toBe("ready");
+    expect(calls.filter((call) => call === "fetch:politician-detail")).toHaveLength(1);
+  });
+
+  it("never sends an invalid id", async () => {
+    const { host, calls } = scriptedHost(enterScripts({ "politician-detail": [profile] }));
+    const session = new MpModeSession(host);
+    await session.enter();
+    for (const bad of ["", "not-an-id", "68a00000000000000000000z", 42, null]) {
+      const snapshot = await session.loadPoliticianDetail(bad);
+      expect(snapshot.politician).toBeNull();
+    }
+    expect(calls.filter((call) => call === "fetch:politician-detail")).toHaveLength(0);
+  });
+});
+
 describe("MpModeSession loadCountryLeaders", () => {
   const leaders = JSON.stringify({
     primeMinister: {

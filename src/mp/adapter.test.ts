@@ -207,6 +207,7 @@ describe("MpModeSession enter", () => {
       nationParties: null,
       nationPoliticians: null,
       nationLeaders: null,
+      politician: null,
       electionList: null,
       newsFeed: null,
       characterSearch: null,
@@ -692,7 +693,7 @@ describe("MpModeSession election detail (#359 election slice)", () => {
       candidateCount: 2,
       leaderName: "Ada",
     });
-    expect(host.fetch).toHaveBeenCalledWith("election-detail", undefined, undefined, SEAT_ID, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined);
+    expect(host.fetch).toHaveBeenCalledWith("election-detail", undefined, undefined, SEAT_ID, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined);
   });
 
   it("rejects bad references client-side without a bridge call", async () => {
@@ -818,7 +819,7 @@ describe("MpModeSession corporation detail (#359 corporation slice)", () => {
       ceoName: "Ada",
       sectorCount: 2,
     });
-    expect(host.fetch).toHaveBeenCalledWith("corporation-detail", undefined, undefined, undefined, "42", undefined, undefined, undefined, undefined, undefined, undefined, undefined);
+    expect(host.fetch).toHaveBeenCalledWith("corporation-detail", undefined, undefined, undefined, "42", undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined);
   });
 
   it("rejects bad references client-side without a bridge call", async () => {
@@ -948,7 +949,7 @@ describe("MpModeSession union detail (#359 union slice)", () => {
       name: "Amalgamated Millhands",
       sectorCount: 2,
     });
-    expect(host.fetch).toHaveBeenCalledWith("union-detail", undefined, undefined, undefined, undefined, HEX_ID, undefined, undefined, undefined, undefined, undefined, undefined);
+    expect(host.fetch).toHaveBeenCalledWith("union-detail", undefined, undefined, undefined, undefined, HEX_ID, undefined, undefined, undefined, undefined, undefined, undefined, undefined);
   });
 
   it("rejects bad references client-side without a bridge call", async () => {
@@ -1086,7 +1087,8 @@ describe("MpModeSession cabinet briefing (#359 cabinet slice)", () => {
       undefined,
       undefined,
       undefined,
-      undefined);
+      undefined,
+      undefined,);
   });
 
   it("rejects bad references client-side without a bridge call", async () => {
@@ -1260,7 +1262,8 @@ describe("MpModeSession governor office (#359 governor slice)", () => {
       "us",
       "CA",
       undefined,
-      undefined);
+      undefined,
+      undefined,);
   });
 
   it("rejects bad references client-side without a bridge call", async () => {

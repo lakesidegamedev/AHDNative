@@ -1,3 +1,38 @@
+## MP world destinations, resource details and bridge repairs, 2026-10-21 (#510 partial)
+
+Follow-up to the batch merged in [PR #748](https://github.com/lakesidegamedev/AHDNative/pull/748)
+(`7a7018e3`) and [PR #750](https://github.com/lakesidegamedev/AHDNative/pull/750)
+(the per-turn campaign income breakdown).
+[PR #752](https://github.com/lakesidegamedev/AHDNative/pull/752) lands the
+notification preview, the nation search and the nation leadership, and repairs
+three bridge defects that a self-review of the merged batch found.
+
+The defects were all device-only failures that the automated suites could not
+see, because the adapter tests use a fake host:
+
+- The nation-leadership and mail-recipient-search command arms refused the
+  country code and the search query they read, so those reads could never run.
+- Every country-scoped read passed the country code one slot too early, so the
+  nation figures, regions, parties, politicians, leadership and race-list reads
+  would all have failed.
+
+Four guards now hold them in place, each checked against a reintroduced
+defect to confirm it has teeth:
+
+- `mp_session::tests::every_command_arm_uses_or_refuses_each_detail_slot_exactly_once`
+- `mp_session::tests::every_pinned_read_passes_the_transport_allowlist`
+- `src/mp/adapterSlots.test.ts` (the slots each read may use)
+- `src/mp/bridgeSlots.test.ts` (each value lands in the slot the bridge reads)
+
+What players gained: the Inbox chip opens a notification preview, the Nations
+destination gained the singleplayer world directory's search field, the nation
+card names the prime minister and the opposition leader, and the funds details
+show the per-turn campaign income lines the reference status bar shows.
+
+#510 stays open and partial: the complete route/destination matrix, the
+remaining multiplayer destinations, and the physical-iPhone navigation and
+safe-area acceptance (#363/#436) stay unchecked, and no device run is claimed.
+
 ## Latest multiplayer turn contract and MP world destinations, 2026-10-21 (#86 closed / #510 partial)
 
 Current GitHub state: **51 open: 38 partial, 9 not started, 2 deferred, 2
@@ -37,6 +72,7 @@ reference destination and role/country condition, the remaining multiplayer
 destinations and actions, the per-turn campaign-income breakdown in the
 multiplayer footer, and the physical-iPhone navigation and safe-area acceptance
 (#363/#436). No device run is claimed here.
+
 
 ## Internal game-menu preview delivered, 2026-10-03 (#124 / #510 partial)
 

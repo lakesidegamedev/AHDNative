@@ -82,6 +82,7 @@ const IDLE: MpSnapshot = {
   nationParties: null,
   nationPoliticians: null,
   nationLeaders: null,
+  politician: null,
   electionList: null,
   newsFeed: null,
   characterSearch: null,
@@ -683,6 +684,16 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
     });
   }
 
+  /* The politician profile opens only once the public profile is loaded. */
+  function openPolitician(id: string) {
+    setNoticeScope("general");
+    void run((s) => s.loadPoliticianDetail(id)).then((next) => {
+      if (next?.politician) {
+        window.setTimeout(() => jumpTo("mp-politician"), 0);
+      }
+    });
+  }
+
   /* The nation panel opens only once the authoritative figures are loaded;
    * failures stay on the shared error display with the directory intact. */
   function openNation(target: string) {
@@ -918,6 +929,7 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
   const nationParties = selectedNation ? snapshot.nationParties : null;
   const nationPoliticians = selectedNation ? snapshot.nationPoliticians : null;
   const nationLeaders = selectedNation ? snapshot.nationLeaders : null;
+  const politicianProfile = snapshot.politician;
   const homeCountryId = snapshot.character?.countryId ?? snapshot.capabilities?.characterCountryId ?? null;
   const turnFounding = snapshot.turn?.preIterationActive === true;
   /* Footer resource parity: the SP footer reads campaign funds from the same
@@ -982,7 +994,7 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
         <header className="ahd-mp-row ahd-mp-heading" aria-label="Multiplayer header">
           <div style={{ minWidth: 0 }}>
             <p className="ahd-eyebrow">Multiplayer</p>
-            {activeSection !== "mp-profile" && activeSection !== "mp-settings" && activeSection !== "mp-actions" && activeSection !== "mp-ask" && <h1 className="ahd-h1" id="mp-top" tabIndex={-1}>{({ "mp-profile": "Profile", "mp-actions": "Actions", "mp-wallet": "Wallet", "mp-inbox": "Notifications", "mp-mail": "Mail", "mp-settings": "Settings", "mp-nations": "Nations", "mp-elections": "Elections", "mp-news": "News" } as Record<string, string>)[activeSection] ?? "Details"}</h1>}
+            {activeSection !== "mp-profile" && activeSection !== "mp-settings" && activeSection !== "mp-actions" && activeSection !== "mp-ask" && <h1 className="ahd-h1" id="mp-top" tabIndex={-1}>{({ "mp-profile": "Profile", "mp-actions": "Actions", "mp-wallet": "Wallet", "mp-inbox": "Notifications", "mp-mail": "Mail", "mp-settings": "Settings", "mp-nations": "Nations", "mp-elections": "Elections", "mp-news": "News", "mp-politician": "Politician" } as Record<string, string>)[activeSection] ?? "Details"}</h1>}
             {snapshot.username && <p className="ahd-muted" style={{ margin: 0 }}>Playing as {snapshot.username}</p>}
           </div>
         </header>
@@ -1455,6 +1467,36 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
           </button>
         </div>
 
+        {/* Politician profile (#510): the reference politician page, read
+          * from the public profile read. */}
+        {politicianProfile && (
+          <article id="mp-politician" className="ahd-card ahd-card-pad" aria-label={"Politician: " + politicianProfile.name} tabIndex={-1} hidden={activeSection !== "mp-politician"}>
+            <h2 className="ahd-h2">{politicianProfile.name}</h2>
+            <dl className="ahd-mp-facts">
+              <dt>Type</dt><dd>{politicianProfile.type === "npp" ? "Non-player politician" : "Player"}</dd>
+              {politicianProfile.currentOffice && (<><dt>Office</dt><dd>{politicianProfile.currentOffice}</dd></>)}
+              {politicianProfile.partyName && (<><dt>Party</dt><dd>{politicianProfile.partyName}</dd></>)}
+              {politicianProfile.homeStateName && (<><dt>Home region</dt><dd>{politicianProfile.homeStateName}</dd></>)}
+              {politicianProfile.politicalInfluence !== null && (<><dt>Political influence</dt><dd>{politicianProfile.politicalInfluence}</dd></>)}
+              {politicianProfile.nationalInfluence !== null && (<><dt>National influence</dt><dd>{politicianProfile.nationalInfluence}</dd></>)}
+              {politicianProfile.favorability !== null && (<><dt>Favorability</dt><dd>{politicianProfile.favorability}</dd></>)}
+              {politicianProfile.economicPolicy !== null && (<><dt>Economic policy</dt><dd>{politicianProfile.economicPolicy}</dd></>)}
+              {politicianProfile.socialPolicy !== null && (<><dt>Social policy</dt><dd>{politicianProfile.socialPolicy}</dd></>)}
+              {politicianProfile.bio && (<><dt>Bio</dt><dd>{politicianProfile.bio}</dd></>)}
+            </dl>
+          </article>
+        )}
+        <div hidden={activeSection !== "mp-politician"} className="ahd-mp-row ahd-mp-back">
+          <button
+            className="ahd-btn ahd-btn-sm ahd-btn-ghost"
+            onClick={() => {
+              jumpTo("mp-nations");
+            }}
+          >
+            Back to the nation
+          </button>
+        </div>
+
         {/* Nations (#510 world destinations): the runtime nation directory
           * from the public /api/countries read, with the selected nation's
           * headline figures from /api/country/[code]/overview-counts. The
@@ -1518,10 +1560,12 @@ export function MpModeScreen({ host, onAsk, askContent, onExit, preferences, onP
               <ul className="ahd-mp-list" aria-label={"Politicians of " + selectedNation.name}>
                 {nationPoliticians.map((politician) => (
                   <li key={politician.id}>
-                    {politician.name}
-                    {politician.currentOffice ? " · " + politician.currentOffice : ""}
-                    {politician.partyName ? " · " + politician.partyName : ""}
-                    {politician.politicalInfluence !== null ? " · INF " + politician.politicalInfluence : ""}
+                    <button type="button" className="ahd-profile-link" onClick={() => openPolitician(politician.id)}>
+                      {politician.name}
+                      {politician.currentOffice ? " · " + politician.currentOffice : ""}
+                      {politician.partyName ? " · " + politician.partyName : ""}
+                      {politician.politicalInfluence !== null ? " · INF " + politician.politicalInfluence : ""}
+                    </button>
                   </li>
                 ))}
               </ul>
